@@ -1,0 +1,8 @@
+{
+  "name": "METROLAB'S Management System",
+  "description": "A comprehensive laboratory management system for tracking products, clients, services, and sales, designed with Supabase integration in mind.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
