@@ -33,6 +33,12 @@ const App: React.FC = () => {
     // Verificar sessão ativa ao carregar
     const initAuth = async () => {
       try {
+        // Testar conexão com o banco
+        const isConnected = await db.testConnection();
+        if (!isConnected) {
+          console.warn("[App] Aplicativo iniciando sem conexão estável com o banco.");
+        }
+        
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (data?.session?.user) {

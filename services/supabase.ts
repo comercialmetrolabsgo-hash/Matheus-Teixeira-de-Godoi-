@@ -55,6 +55,14 @@ const prepareData = (item: any) => {
   };
 };
 
+// Helper para timeout em operações do Supabase
+const withTimeout = async (promise: any, timeoutMs: number = 10000) => {
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Tempo limite de conexão com o banco de dados excedido.')), timeoutMs)
+  );
+  return Promise.race([promise, timeoutPromise]);
+};
+
 export const db = {
   auth: {
     signIn: async (email: string, pass: string) => {
@@ -69,6 +77,18 @@ export const db = {
     }
   },
 
+  testConnection: async () => {
+    try {
+      const { data, error } = await withTimeout(supabase.from('products').select('id').limit(1), 5000);
+      if (error) throw error;
+      console.log("[DB] Conexão com Supabase OK");
+      return true;
+    } catch (err) {
+      console.error("[DB] Falha na conexão com Supabase:", err);
+      return false;
+    }
+  },
+
   subscribe: (table: string, callback: () => void) => {
     return supabase
       .channel(`public:${table}`)
@@ -78,118 +98,133 @@ export const db = {
       .subscribe();
   },
 
-  clients: {
-    getAll: async () => {
-      const { data } = await supabase.from('clients').select('*').order('name');
-      return data || [];
-    },
-    save: async (item: any) => { 
-      const { isUpdate, id, data } = prepareData(item);
-      console.log(`[DB] Saving client (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('clients').update(data).eq('id', id).select();
-      return await supabase.from('clients').insert(data).select();
-    },
-    delete: async (id: string | number) => await supabase.from('clients').delete().eq('id', id)
-  },
-
-  services: {
-    getAll: async () => {
-      const { data } = await supabase.from('services').select('*').order('date', { ascending: false });
-      return data || [];
-    },
-    getById: async (id: string | number) => {
-      const { data } = await supabase.from('services').select('*').eq('id', id).single();
-      return data;
-    },
-    save: async (item: any) => {
-      const { isUpdate, id, data } = prepareData(item);
-      console.log(`[DB] Saving service (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('services').update(data).eq('id', id).select();
-      return await supabase.from('services').insert(data).select();
-    },
-    delete: async (id: string | number) => await supabase.from('services').delete().eq('id', id),
-    
-    getTaskTypes: async () => {
-      const { data } = await supabase.from('service_task_types').select('*').order('name');
-      return data || [];
-    },
-    saveTaskType: async (name: string) => {
-      return await supabase.from('service_task_types').insert({ name }).select();
-    }
-  },
-
-  users: {
-    getAll: async () => {
-      const { data } = await supabase.from('users').select('*').order('full_name');
-      return data || [];
-    },
-    getByEmail: async (email: string) => {
-      const { data, error } = await supabase.from('users').select('*').eq('email', email).maybeSingle();
-      if (error) console.error("Erro ao buscar metadados do usuário:", error);
-      return data;
-    },
-    save: async (item: any) => {
-      const { isUpdate, id, data } = prepareData(item);
-      console.log(`[DB] Saving user (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('users').update(data).eq('id', id).select();
-      return await supabase.from('users').insert(data).select();
-    },
-    delete: async (id: string | number) => await supabase.from('users').delete().eq('id', id)
-  },
-
-  activities: {
-    getAll: async () => {
-      const { data } = await supabase.from('activities').select('*').order('date', { ascending: false });
-      return data || [];
-    },
-    log: async (description: string, type: string) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userName = user?.user_metadata?.full_name || user?.email || 'Sistema';
-      return await supabase.from('activities').insert({ 
-        description, type, "user": userName, date: new Date().toISOString() 
-      });
-    }
-  },
-
   products: {
     getAll: async () => {
-      const { data } = await supabase.from('products').select('*').order('name');
+      const { data, error } = await withTimeout(supabase.from('products').select('*').order('name'), 8000);
+      if (error) console.error("[DB] Erro ao buscar produtos:", error);
       return data || [];
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
       console.log(`[DB] Saving product (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('products').update(data).eq('id', id).select();
-      return await supabase.from('products').insert(data).select();
+      const op = isUpdate
+        ? supabase.from('products').update(data).eq('id', id).select()
+        : supabase.from('products').insert(data).select();
+      return await withTimeout(op);
     },
-    delete: async (id: string | number) => await supabase.from('products').delete().eq('id', id)
+    delete: async (id: string | number) => await withTimeout(supabase.from('products').delete().eq('id', id))
   },
-
+  clients: {
+    getAll: async () => {
+      const { data, error } = await withTimeout(supabase.from('clients').select('*').order('name'), 8000);
+      if (error) console.error("[DB] Erro ao buscar clientes:", error);
+      return data || [];
+    },
+    save: async (item: any) => { 
+      const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving client (update: ${isUpdate}):`, data);
+      const op = isUpdate 
+        ? supabase.from('clients').update(data).eq('id', id).select()
+        : supabase.from('clients').insert(data).select();
+      return await withTimeout(op);
+    },
+    delete: async (id: string | number) => await withTimeout(supabase.from('clients').delete().eq('id', id))
+  },
+  services: {
+    getAll: async () => {
+      const { data, error } = await withTimeout(supabase.from('services').select('*').order('date', { ascending: false }), 8000);
+      if (error) console.error("[DB] Erro ao buscar serviços:", error);
+      return data || [];
+    },
+    getById: async (id: string | number) => {
+      const { data, error } = await withTimeout(supabase.from('services').select('*').eq('id', id).single(), 5000);
+      if (error) console.error("[DB] Erro ao buscar serviço por ID:", error);
+      return data;
+    },
+    save: async (item: any) => {
+      const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving service (update: ${isUpdate}):`, data);
+      const op = isUpdate
+        ? supabase.from('services').update(data).eq('id', id).select()
+        : supabase.from('services').insert(data).select();
+      return await withTimeout(op);
+    },
+    delete: async (id: string | number) => await withTimeout(supabase.from('services').delete().eq('id', id)),
+    
+    getTaskTypes: async () => {
+      const { data, error } = await withTimeout(supabase.from('service_task_types').select('*').order('name'), 5000);
+      if (error) console.error("[DB] Erro ao buscar tipos de tarefa:", error);
+      return data || [];
+    },
+    saveTaskType: async (name: string) => {
+      return await withTimeout(supabase.from('service_task_types').insert({ name }).select());
+    }
+  },
+  users: {
+    getAll: async () => {
+      const { data, error } = await withTimeout(supabase.from('users').select('*').order('full_name'), 8000);
+      if (error) console.error("[DB] Erro ao buscar usuários:", error);
+      return data || [];
+    },
+    getByEmail: async (email: string) => {
+      const { data, error } = await withTimeout(supabase.from('users').select('*').eq('email', email).maybeSingle(), 5000);
+      if (error) console.error("[DB] Erro ao buscar metadados do usuário:", error);
+      return data;
+    },
+    save: async (item: any) => {
+      const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving user (update: ${isUpdate}):`, data);
+      const op = isUpdate
+        ? supabase.from('users').update(data).eq('id', id).select()
+        : supabase.from('users').insert(data).select();
+      return await withTimeout(op);
+    },
+    delete: async (id: string | number) => await withTimeout(supabase.from('users').delete().eq('id', id))
+  },
+  activities: {
+    getAll: async () => {
+      const { data, error } = await withTimeout(supabase.from('activities').select('*').order('date', { ascending: false }), 8000);
+      if (error) console.error("[DB] Erro ao buscar atividades:", error);
+      return data || [];
+    },
+    log: async (description: string, type: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userName = user?.user_metadata?.full_name || user?.email || 'Sistema';
+      return await withTimeout(supabase.from('activities').insert({ 
+        description, type, "user": userName, date: new Date().toISOString() 
+      }));
+    }
+  },
   sales: {
     getAll: async () => {
-      const { data } = await supabase.from('sales').select('*').order('date', { ascending: false });
+      const { data, error } = await withTimeout(supabase.from('sales').select('*').order('date', { ascending: false }), 8000);
+      if (error) console.error("[DB] Erro ao buscar vendas:", error);
       return data || [];
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
       console.log(`[DB] Saving sale (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('sales').update(data).eq('id', id).select();
-      return await supabase.from('sales').insert(data).select();
+      const op = isUpdate
+        ? supabase.from('sales').update(data).eq('id', id).select()
+        : supabase.from('sales').insert(data).select();
+      return await withTimeout(op);
     },
-    delete: async (id: string | number) => await supabase.from('sales').delete().eq('id', id)
+    delete: async (id: string | number) => await withTimeout(supabase.from('sales').delete().eq('id', id))
   },
-
   tracking: {
     getAll: async () => {
-      const { data } = await supabase.from('tracking').select('*').order('created_at', { ascending: false });
+      const { data, error } = await withTimeout(supabase.from('tracking').select('*').order('created_at', { ascending: false }), 8000);
+      if (error) console.error("[DB] Erro ao buscar rastreios:", error);
       return data || [];
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
       console.log(`[DB] Saving tracking (update: ${isUpdate}):`, data);
-      if (isUpdate) return await supabase.from('tracking').update(data).eq('id', id).select();
-      return await supabase.from('tracking').insert({ ...data, id: item.id }).select();
+      const op = isUpdate
+        ? supabase.from('tracking').update(data).eq('id', id).select()
+        : supabase.from('tracking').insert({ ...data, id: item.id }).select();
+      return await withTimeout(op);
     },
-    delete: async (id: string | number) => await supabase.from('tracking').delete().eq('id', id)
+    delete: async (id: string | number) => await withTimeout(supabase.from('tracking').delete().eq('id', id))
   }
 };
