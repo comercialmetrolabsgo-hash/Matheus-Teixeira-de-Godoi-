@@ -9,6 +9,9 @@ const Sales: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSuccess, setOperationSuccess] = useState(false);
 
   const [formData, setFormData] = useState({
     client_id: '',
@@ -37,25 +40,55 @@ const Sales: React.FC = () => {
     e.preventDefault();
     if (!formData.client_id) return alert('Selecione um cliente.');
 
-    // Fix: Use String comparison to handle both string and number IDs to avoid type mismatch
-    const client = clients.find(c => String(c.id) === String(formData.client_id));
-    const userStr = localStorage.getItem('metrolab_user');
-    const user = userStr ? JSON.parse(userStr) : {};
+    setIsProcessing(true);
+    setOperationError(null);
+    setOperationSuccess(false);
 
-    const newSale: Sale = {
-      id: Math.random().toString(36).substr(2, 9),
-      client_id: formData.client_id,
-      client_name: client?.name || 'Cliente',
-      amount: formData.amount,
-      items_count: formData.items_count,
-      date: new Date().toISOString(),
-      user_id: user.id || '1'
-    };
+    console.log('[Sales] Iniciando salvamento...', { client_id: formData.client_id });
 
-    // Fix: Await the async save call.
-    await db.sales.save(newSale);
-    loadData();
-    setShowModal(false);
+    try {
+      const client = clients.find(c => String(c.id) === String(formData.client_id));
+      const userStr = localStorage.getItem('metrolab_user');
+      const user = userStr ? JSON.parse(userStr) : {};
+
+      const newSale: Sale = {
+        id: Math.random().toString(36).substr(2, 9),
+        client_id: formData.client_id,
+        client_name: client?.name || 'Cliente',
+        amount: formData.amount,
+        items_count: formData.items_count,
+        date: new Date().toISOString(),
+        user_id: user.id || '1'
+      };
+
+      console.log('[Sales] Payload preparado:', newSale);
+
+      const result: any = await db.sales.save(newSale);
+      
+      if (!result.error) {
+        console.log('[Sales] Salvo com sucesso!');
+        
+        const loadPromise = loadData();
+        const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        setOperationSuccess(true);
+        setTimeout(() => {
+          setShowModal(false);
+          setIsProcessing(false);
+          setOperationSuccess(false);
+        }, 1200);
+      } else {
+        console.error('[Sales] Erro retornado pelo banco:', result.error);
+        setOperationError(result.error.message || "Erro ao salvar venda.");
+        setIsProcessing(false);
+      }
+    } catch (error: any) {
+      console.error('[Sales] Erro inesperado:', error);
+      setOperationError(error.message || "Falha de conexão.");
+      setIsProcessing(false);
+    }
   };
 
   return (
@@ -152,6 +185,41 @@ const Sales: React.FC = () => {
                 <button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-xl font-bold">Finalizar Venda</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Overlay de Processamento */}
+      {(isProcessing || operationError || operationSuccess) && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-[2rem] p-10 shadow-2xl text-center border border-slate-100 animate-slideUp">
+            {isProcessing && !operationError && !operationSuccess && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 border-4 border-emerald-100 border-t-emerald-600 rounded-full animate-spin mx-auto"></div>
+                <p className="font-bold text-gray-800 uppercase text-lg">Processando Venda...</p>
+              </div>
+            )}
+
+            {operationError && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto">
+                  <X className="w-8 h-8" />
+                </div>
+                <p className="font-bold text-gray-800 uppercase text-lg">Erro na Operação</p>
+                <p className="text-sm text-red-600 bg-red-50 p-3 rounded-xl break-all">{operationError}</p>
+                <button onClick={() => setOperationError(null)} className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold uppercase text-xs tracking-widest">
+                  Fechar
+                </button>
+              </div>
+            )}
+
+            {operationSuccess && (
+              <div className="space-y-4">
+                <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
+                  <Receipt className="w-8 h-8" />
+                </div>
+                <p className="font-bold text-gray-800 uppercase text-lg">Venda Registrada!</p>
+              </div>
+            )}
           </div>
         </div>
       )}

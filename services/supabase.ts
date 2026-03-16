@@ -12,28 +12,39 @@ const prepareData = (item: any) => {
   const cleaned: any = {};
   Object.keys(rawPayload).forEach(key => {
     const value = rawPayload[key];
-    if (value === undefined || value === null) return;
+    
+    // Permitimos null explicitamente para poder limpar campos no banco
+    if (value === null) {
+      cleaned[key] = null;
+      return;
+    }
+
+    if (value === undefined) return;
     
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      if (trimmed === '') return;
-      cleaned[key] = trimmed;
+      // Se for string vazia, tratamos como null para o banco
+      cleaned[key] = trimmed === '' ? null : trimmed;
     } else {
       cleaned[key] = value;
     }
   });
 
-  // Garante que campos numéricos de negócio sejam tratados corretamente
-  // Mas NÃO toca no client_id se ele for UUID (string longa com hífens)
-  if (cleaned.client_id && !isNaN(Number(cleaned.client_id))) {
-    cleaned.client_id = parseInt(String(cleaned.client_id), 10);
+  // Garante que campos numéricos sejam convertidos corretamente
+  const numericFields = ['price', 'amount', 'items_count', 'stock', 'minStock', 'costPrice', 'salePrice'];
+  numericFields.forEach(field => {
+    if (Object.prototype.hasOwnProperty.call(cleaned, field) && cleaned[field] !== null) {
+      cleaned[field] = parseFloat(String(cleaned[field])) || 0;
+    }
+  });
+
+  // Tratamento especial para client_id (pode ser UUID ou Inteiro)
+  if (cleaned.client_id !== undefined && cleaned.client_id !== null) {
+    const asNum = Number(cleaned.client_id);
+    if (!isNaN(asNum) && String(cleaned.client_id).length < 10) {
+      cleaned.client_id = parseInt(String(cleaned.client_id), 10);
+    }
   }
-  
-  if (cleaned.price) cleaned.price = parseFloat(String(cleaned.price)) || 0;
-  if (cleaned.amount) cleaned.amount = parseFloat(String(cleaned.amount)) || 0;
-  if (cleaned.items_count) cleaned.items_count = parseInt(String(cleaned.items_count), 10) || 0;
-  if (cleaned.stock) cleaned.stock = parseInt(String(cleaned.stock), 10) || 0;
-  if (cleaned.minStock) cleaned.minStock = parseInt(String(cleaned.minStock), 10) || 0;
   
   const isUpdate = id !== undefined && id !== null && id !== '';
   
@@ -74,6 +85,7 @@ export const db = {
     },
     save: async (item: any) => { 
       const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving client (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('clients').update(data).eq('id', id).select();
       return await supabase.from('clients').insert(data).select();
     },
@@ -91,6 +103,7 @@ export const db = {
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving service (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('services').update(data).eq('id', id).select();
       return await supabase.from('services').insert(data).select();
     },
@@ -117,7 +130,7 @@ export const db = {
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
-      // Para usuários, SEMPRE usamos o ID fornecido (que vem do Auth)
+      console.log(`[DB] Saving user (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('users').update(data).eq('id', id).select();
       return await supabase.from('users').insert(data).select();
     },
@@ -145,6 +158,7 @@ export const db = {
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving product (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('products').update(data).eq('id', id).select();
       return await supabase.from('products').insert(data).select();
     },
@@ -158,6 +172,7 @@ export const db = {
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving sale (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('sales').update(data).eq('id', id).select();
       return await supabase.from('sales').insert(data).select();
     },
@@ -171,6 +186,7 @@ export const db = {
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving tracking (update: ${isUpdate}):`, data);
       if (isUpdate) return await supabase.from('tracking').update(data).eq('id', id).select();
       return await supabase.from('tracking').insert({ ...data, id: item.id }).select();
     },

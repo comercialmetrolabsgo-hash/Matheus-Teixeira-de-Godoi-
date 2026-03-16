@@ -116,11 +116,21 @@ const Products: React.FC = () => {
         expiry_date: formData.expiry_date === "" ? null : formData.expiry_date
       };
 
+      console.log("[Products] Iniciando salvamento...", productData);
       const result: any = await db.products.save(productData);
 
       if (!result.error) {
         setOperationSuccess(true);
-        await loadData();
+        
+        // Tentamos carregar os dados, mas não deixamos travar a UI se demorar
+        try {
+          const loadPromise = loadData();
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 3000));
+          await Promise.race([loadPromise, timeoutPromise]);
+        } catch (e) {
+          console.warn("[Products] loadData demorou ou falhou, mas o save foi ok.");
+        }
+
         setTimeout(() => {
           setShowModal(false);
           setIsProcessing(false);
@@ -130,6 +140,7 @@ const Products: React.FC = () => {
         }, 800);
       } else {
         setIsProcessing(false);
+        console.error("[Products] Erro retornado pelo banco:", result.error);
         if (result.error.message?.includes('expiry_date')) {
           setOperationError("A coluna 'expiry_date' não foi encontrada no banco. Por favor, execute o script SQL de atualização no Supabase.");
         } else {
@@ -138,6 +149,7 @@ const Products: React.FC = () => {
       }
     } catch (e: any) {
       setIsProcessing(false);
+      console.error("[Products] Erro inesperado:", e);
       setOperationError(e.message || "Erro inesperado de conexão.");
     }
   };
@@ -167,57 +179,6 @@ const Products: React.FC = () => {
   return (
     <div className="relative text-left pb-20">
       <div className="space-y-8 animate-fadeIn">
-        {/* MODAL DE EXCLUSÃO */}
-        {itemToDelete && (
-          <div className="fixed inset-0 z-[4000] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6">
-            <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl border border-red-50 text-center animate-slideUp">
-              <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Trash className="w-8 h-8" />
-              </div>
-              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Remover do Catálogo?</h3>
-              <p className="text-sm text-slate-500 mb-8">O item <span className="font-bold text-red-600">{itemToDelete.name}</span> será excluído permanentemente.</p>
-              <div className="grid grid-cols-2 gap-4">
-                <button onClick={() => setItemToDelete(null)} className="py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest">Manter Item</button>
-                <button onClick={handleDelete} className="py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-red-200">Confirmar Exclusão</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* OVERLAY DE STATUS */}
-        {(isProcessing || operationError || operationSuccess) && (
-          <div className="fixed inset-0 z-[5000] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-md rounded-[3rem] p-12 shadow-2xl border border-slate-100 text-center animate-slideUp">
-               {isProcessing && !operationSuccess && (
-                 <div className="space-y-6">
-                   <Loader2 className="w-16 h-16 text-[#004282] animate-spin mx-auto" />
-                   <p className="font-black text-slate-700 uppercase tracking-widest text-xs">Comunicando com Supabase...</p>
-                 </div>
-               )}
-               {operationSuccess && (
-                 <div className="space-y-6">
-                   <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto text-green-500 shadow-inner">
-                      <CheckCircle2 className="w-10 h-10" />
-                   </div>
-                   <p className="font-black text-slate-800 text-2xl uppercase tracking-tighter">Sincronizado!</p>
-                 </div>
-               )}
-               {operationError && (
-                 <div className="space-y-6">
-                   <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500 shadow-inner">
-                      <AlertCircle className="w-10 h-10" />
-                   </div>
-                   <p className="font-black text-red-600 uppercase text-xs tracking-widest">Erro na Operação</p>
-                   <div className="bg-red-50 p-4 rounded-2xl text-left border border-red-100">
-                      <p className="text-[10px] text-red-800 font-mono break-words">{String(operationError)}</p>
-                   </div>
-                   <button onClick={() => setOperationError(null)} className="w-full py-4 bg-[#004282] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Fechar</button>
-                 </div>
-               )}
-            </div>
-          </div>
-        )}
-
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h2 className="text-4xl font-black text-[#004282] tracking-tighter uppercase">Produtos</h2>
@@ -444,6 +405,57 @@ const Products: React.FC = () => {
                   <span>{isProcessing ? 'Sincronizando...' : 'Concluir Alterações'}</span>
                </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EXCLUSÃO */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[4000] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6">
+          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-10 shadow-2xl border border-red-50 text-center animate-slideUp">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Trash className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Remover do Catálogo?</h3>
+            <p className="text-sm text-slate-500 mb-8">O item <span className="font-bold text-red-600">{itemToDelete.name}</span> será excluído permanentemente.</p>
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => setItemToDelete(null)} className="py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase text-[10px] tracking-widest">Manter Item</button>
+              <button onClick={handleDelete} className="py-4 bg-red-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-red-200">Confirmar Exclusão</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OVERLAY DE STATUS */}
+      {(isProcessing || operationError || operationSuccess) && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-12 shadow-2xl border border-slate-100 text-center animate-slideUp">
+             {isProcessing && !operationSuccess && (
+               <div className="space-y-6">
+                 <Loader2 className="w-16 h-16 text-[#004282] animate-spin mx-auto" />
+                 <p className="font-black text-slate-700 uppercase tracking-widest text-xs">Comunicando com Supabase...</p>
+               </div>
+             )}
+             {operationSuccess && (
+               <div className="space-y-6">
+                 <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto text-green-500 shadow-inner">
+                    <CheckCircle2 className="w-10 h-10" />
+                 </div>
+                 <p className="font-black text-slate-800 text-2xl uppercase tracking-tighter">Sincronizado!</p>
+               </div>
+             )}
+             {operationError && (
+               <div className="space-y-6">
+                 <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto text-red-500 shadow-inner">
+                    <AlertCircle className="w-10 h-10" />
+                 </div>
+                 <p className="font-black text-red-600 uppercase text-xs tracking-widest">Erro na Operação</p>
+                 <div className="bg-red-50 p-4 rounded-2xl text-left border border-red-100">
+                    <p className="text-[10px] text-red-800 font-mono break-words">{String(operationError)}</p>
+                 </div>
+                 <button onClick={() => setOperationError(null)} className="w-full py-4 bg-[#004282] text-white rounded-2xl text-[10px] font-black uppercase tracking-widest">Fechar</button>
+               </div>
+             )}
           </div>
         </div>
       )}

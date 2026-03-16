@@ -38,6 +38,10 @@ const Services: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSuccess, setOperationSuccess] = useState(false);
+
   const initialFormData: Partial<Service> = {
     client_id: '',
     responsible: '',
@@ -123,7 +127,12 @@ const Services: React.FC = () => {
     if (!formData.client_id) return alert('Por favor, selecione um cliente.');
     if (!formData.description) return alert('A descrição da tarefa é obrigatória.');
     
-    setIsLoading(true);
+    setIsProcessing(true);
+    setOperationError(null);
+    setOperationSuccess(false);
+    
+    console.log('[Services] Iniciando salvamento...', { id: editingService?.id, closeModal });
+
     try {
       const selectedClient = clients.find(c => String(c.id) === String(formData.client_id));
       
@@ -138,27 +147,47 @@ const Services: React.FC = () => {
         status: finalStatus
       };
 
+      console.log('[Services] Payload preparado:', payload);
+
       const result: any = await db.services.save(payload);
       
       if (!result.error) {
-        await loadData();
+        console.log('[Services] Salvo com sucesso!', result.data);
+        
+        // Tenta recarregar os dados, mas não deixa travar a UI se demorar
+        const loadPromise = loadData();
+        const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        setOperationSuccess(true);
+        
         if (closeModal) {
-          setShowModal(false);
+          setTimeout(() => {
+            setShowModal(false);
+            setIsProcessing(false);
+            setOperationSuccess(false);
+          }, 1000);
         } else {
           const updated = result.data?.[0];
           if (updated) {
             setEditingService(updated);
             setFormData(updated);
           }
-          alert("Sincronizado com sucesso!");
+          setTimeout(() => {
+            setIsProcessing(false);
+            setOperationSuccess(false);
+          }, 2000);
         }
       } else {
-        alert(`Erro: ${result.error.message}`);
+        console.error('[Services] Erro retornado pelo banco:', result.error);
+        setOperationError(result.error.message || "Erro ao salvar no banco de dados.");
+        setIsProcessing(false);
       }
-    } catch (error) {
-      alert("Falha de conexão.");
-    } finally {
-      setIsLoading(false);
+    } catch (error: any) {
+      console.error('[Services] Erro inesperado:', error);
+      setOperationError(error.message || "Falha de conexão ou erro interno.");
+      setIsProcessing(false);
     }
   };
 
@@ -708,6 +737,45 @@ const Services: React.FC = () => {
           );
         })}
       </div>
+      {/* Overlay de Processamento */}
+      {(isProcessing || operationError || operationSuccess) && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-12 shadow-2xl text-center border border-slate-100 animate-slideUp">
+            {isProcessing && !operationError && !operationSuccess && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin mx-auto"></div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Sincronizando...</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Comunicando com o servidor Metrolab</p>
+              </div>
+            )}
+
+            {operationError && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <AlertCircle className="w-10 h-10" />
+                </div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Ops! Algo deu errado</p>
+                <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
+                  <p className="text-[10px] font-mono text-red-600 break-all leading-relaxed uppercase">{operationError}</p>
+                </div>
+                <button onClick={() => setOperationError(null)} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">
+                  Tentar Novamente
+                </button>
+              </div>
+            )}
+
+            {operationSuccess && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 bg-green-50 text-[#00c996] rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <CheckCircle className="w-10 h-10" />
+                </div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Sucesso!</p>
+                <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Os dados foram salvos com segurança</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

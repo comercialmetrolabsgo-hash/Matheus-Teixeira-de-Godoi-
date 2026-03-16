@@ -89,12 +89,17 @@ const Clients: React.FC = () => {
 
     setIsLoading(true);
     setErrorDetails(null);
+    setOperationSuccess(false);
     
+    console.log('[Clients] Iniciando salvamento...', { id: editingClient?.id });
+
     try {
       const clientData = {
         ...formData,
         id: editingClient ? editingClient.id : undefined 
       };
+
+      console.log('[Clients] Payload preparado:', clientData);
 
       const result: any = await db.clients.save(clientData);
       
@@ -102,7 +107,7 @@ const Clients: React.FC = () => {
         const msg = result.error.message || "";
         const code = result.error.code || "";
         
-        console.error("Erro Supabase:", result.error);
+        console.error("[Clients] Erro Supabase:", result.error);
 
         if (msg.includes('id') || msg.includes('dependency') || msg.includes('constraint')) {
           setErrorDetails({
@@ -123,14 +128,22 @@ const Clients: React.FC = () => {
           });
         }
       } else {
+        console.log('[Clients] Salvo com sucesso!', result.data);
+        
+        // Tenta recarregar os dados, mas não deixa travar a UI se demorar
+        const loadPromise = loadClients();
+        const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
         setOperationSuccess(true);
-        await loadClients();
         setTimeout(() => {
           setShowModal(false);
           setOperationSuccess(false);
         }, 1200);
       }
     } catch (e: any) {
+      console.error('[Clients] Erro inesperado:', e);
       setErrorDetails({ message: "Falha de comunicação.", raw: e.message });
     } finally {
       setIsLoading(false);

@@ -15,6 +15,9 @@ const Tracking: React.FC = () => {
   const [searched, setSearched] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationSuccess, setOperationSuccess] = useState(false);
 
   const [formData, setFormData] = useState<Omit<TrackingItem, 'id' | 'created_at'>>({
     type: 'purchase',
@@ -59,15 +62,49 @@ const Tracking: React.FC = () => {
 
   const handleAddTracking = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newItem: TrackingItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      created_at: new Date().toISOString(),
-      ...formData
-    };
-    await db.tracking.save(newItem);
-    await loadTracking();
-    setShowAddModal(false);
-    setFormData({ ...formData, code: '', description: '', carrier: '17track' });
+    
+    setIsProcessing(true);
+    setOperationError(null);
+    setOperationSuccess(false);
+
+    console.log('[Tracking] Iniciando salvamento...', { code: formData.code });
+
+    try {
+      const newItem: TrackingItem = {
+        id: Math.random().toString(36).substr(2, 9),
+        created_at: new Date().toISOString(),
+        ...formData
+      };
+
+      console.log('[Tracking] Payload preparado:', newItem);
+
+      const result: any = await db.tracking.save(newItem);
+      
+      if (!result.error) {
+        console.log('[Tracking] Salvo com sucesso!');
+        
+        const loadPromise = loadTracking();
+        const timeoutPromise = new Promise(resolve => setTimeout(resolve, 3000));
+        
+        await Promise.race([loadPromise, timeoutPromise]);
+        
+        setOperationSuccess(true);
+        setTimeout(() => {
+          setShowAddModal(false);
+          setIsProcessing(false);
+          setOperationSuccess(false);
+          setFormData({ ...formData, code: '', description: '', carrier: '17track' });
+        }, 1200);
+      } else {
+        console.error('[Tracking] Erro retornado pelo banco:', result.error);
+        setOperationError(result.error.message || "Erro ao salvar rastreio.");
+        setIsProcessing(false);
+      }
+    } catch (error: any) {
+      console.error('[Tracking] Erro inesperado:', error);
+      setOperationError(error.message || "Falha de conexão.");
+      setIsProcessing(false);
+    }
   };
 
   const handleDeleteTracking = async (id: string | number) => {
@@ -315,6 +352,41 @@ const Tracking: React.FC = () => {
                 <button type="submit" className="w-full sm:w-auto bg-[#004282] text-white px-16 py-5 rounded-[2rem] font-black shadow-2xl uppercase text-[11px] tracking-widest active:scale-95 transition-all">Sincronizar Logística</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Overlay de Processamento */}
+      {(isProcessing || operationError || operationSuccess) && (
+        <div className="fixed inset-0 z-[5000] bg-slate-900/80 backdrop-blur-md flex items-center justify-center p-6 animate-fadeIn">
+          <div className="bg-white w-full max-w-md rounded-[3rem] p-12 shadow-2xl text-center border border-slate-100 animate-slideUp">
+            {isProcessing && !operationError && !operationSuccess && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 border-4 border-slate-100 border-t-[#004282] rounded-full animate-spin mx-auto"></div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Sincronizando...</p>
+              </div>
+            )}
+
+            {operationError && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <X className="w-10 h-10" />
+                </div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Erro no Registro</p>
+                <p className="text-sm text-red-600 bg-red-50 p-4 rounded-2xl break-all">{operationError}</p>
+                <button onClick={() => setOperationError(null)} className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl active:scale-95 transition-all">
+                  Fechar
+                </button>
+              </div>
+            )}
+
+            {operationSuccess && (
+              <div className="space-y-6">
+                <div className="w-20 h-20 bg-green-50 text-[#74C044] rounded-full flex items-center justify-center mx-auto shadow-inner">
+                  <CheckCircle2 className="w-10 h-10" />
+                </div>
+                <p className="font-black text-slate-800 uppercase tracking-tighter text-xl">Rastreio Vinculado!</p>
+              </div>
+            )}
           </div>
         </div>
       )}
