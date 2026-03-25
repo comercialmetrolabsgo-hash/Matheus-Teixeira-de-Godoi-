@@ -34,15 +34,34 @@ const App: React.FC = () => {
   useEffect(() => {
     // Verificar sessão ativa ao carregar
     const initAuth = async () => {
-      setIsInitializing(true);
+      // Tentar carregar do localStorage primeiro para velocidade (Optimistic UI)
+      const cachedUser = localStorage.getItem('metrolab_user');
+      let hasCache = false;
       
-      // Timeout de segurança para a inicialização (300 segundos / 5 minutos)
+      if (cachedUser) {
+        try {
+          const user = JSON.parse(cachedUser);
+          setCurrentUser(user);
+          setIsAuthenticated(true);
+          setIsInitializing(false); // Libera a UI imediatamente se houver cache
+          hasCache = true;
+          console.log("[App] Carregando usuário do cache para inicialização rápida.");
+        } catch (e) {
+          localStorage.removeItem('metrolab_user');
+        }
+      }
+
+      if (!hasCache) {
+        setIsInitializing(true);
+      }
+      
+      // Timeout de segurança para a inicialização (45 segundos)
       const initTimeout = setTimeout(() => {
         setIsInitializing(false);
-        console.warn("[App] Inicialização demorando muito, liberando tela de login.");
-      }, 300000);
+        console.warn("[App] Inicialização demorando muito, liberando tela.");
+      }, 45000);
 
-      // Iniciar teste de conexão em background para não bloquear o login
+      // Iniciar teste de conexão em background
       db.testConnection().then(isConnected => {
         if (!isConnected) {
           console.warn("[App] Aplicativo iniciando sem conexão estável com o banco.");
@@ -53,6 +72,11 @@ const App: React.FC = () => {
         const session = await db.auth.getSession();
         if (session?.user) {
           await fetchUserData(session.user.email!);
+        } else if (hasCache) {
+          // Se tinha cache mas não tem sessão real, desloga
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+          localStorage.removeItem('metrolab_user');
         }
       } catch (err) {
         console.error("Erro ao inicializar auth:", err);
@@ -93,7 +117,12 @@ const App: React.FC = () => {
 
   const fetchUserData = async (email: string) => {
     try {
-      const userMetadata = await db.users.getByEmail(email);
+      // Timeout de 15s para buscar metadados para não travar o login
+      const userMetadata = await Promise.race([
+        db.users.getByEmail(email),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
+      ]) as any;
+
       if (userMetadata) {
         const fullUser: User = {
           id: userMetadata.id,
@@ -166,12 +195,20 @@ const App: React.FC = () => {
             <p className="text-white/80 font-medium text-lg">Iniciando sistema...</p>
             <p className="text-white/40 text-xs mt-2 uppercase tracking-widest">Conectando ao banco de dados seguro</p>
           </div>
-          <button 
-            onClick={() => setIsInitializing(false)}
-            className="text-white/30 hover:text-white/60 text-[10px] uppercase tracking-widest transition-colors border border-white/10 px-4 py-2 rounded-full"
-          >
-            Pular inicialização
-          </button>
+          <div className="flex flex-col space-y-3">
+            <button 
+              onClick={() => window.location.reload()}
+              className="text-white/60 hover:text-white text-[10px] uppercase font-black tracking-widest transition-all border border-white/20 hover:border-white/40 px-8 py-3 rounded-full bg-white/5"
+            >
+              Recarregar Página
+            </button>
+            <button 
+              onClick={() => setIsInitializing(false)}
+              className="text-white/30 hover:text-white/50 text-[10px] uppercase tracking-widest transition-colors px-4 py-2"
+            >
+              Pular inicialização
+            </button>
+          </div>
         </div>
       </div>
     );

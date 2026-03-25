@@ -17,7 +17,7 @@ const Logo: React.FC<LogoProps> = ({ className = "h-12", showText = true, varian
   return (
     <div className={`flex items-center justify-start ${className}`} style={width ? { width, minWidth: width } : {}}>
       <svg 
-        viewBox="0 0 500 120" 
+        viewBox={showText ? "0 0 500 120" : "0 0 120 120"} 
         className="w-full h-full" 
         preserveAspectRatio="xMinYMid meet"
         fill="none" 

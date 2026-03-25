@@ -23,6 +23,7 @@ const StatCard: React.FC<{ label: string; value: string; icon: React.ReactNode; 
 const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
   const [currentUser, setCurrentUser] = useState<UserType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | number | null>(null);
   const [data, setData] = useState({
@@ -39,13 +40,26 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
     }
   });
 
-  const loadData = async () => {
+  const loadData = async (isInitial = false) => {
+    if (isInitial) setIsLoading(true);
+    setIsSyncing(true);
+    
+    // Timeout de segurança para não travar a tela de sincronização
+    const dashboardTimeout = setTimeout(() => {
+      setIsLoading(false);
+      console.warn("[Dashboard] Sincronização demorando muito, liberando interface.");
+    }, 15000);
+
     try {
       setHasError(false);
-      const products = await db.products.getAll().catch(() => []);
-      const clients = await db.clients.getAll().catch(() => []);
-      const services = await db.services.getAll().catch(() => []);
-      const activities = await db.activities.getAll().catch(() => []);
+      
+      // Carregar dados em paralelo para maior velocidade
+      const [products, clients, services, activities] = await Promise.all([
+        db.products.getAll().catch(() => []),
+        db.clients.getAll().catch(() => []),
+        db.services.getAll().catch(() => []),
+        db.activities.getAll().catch(() => [])
+      ]);
       
       const userStr = localStorage.getItem('metrolab_user');
       const user: UserType = userStr ? JSON.parse(userStr) : null;
@@ -96,18 +110,23 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
       });
     } catch (e) {
       console.error("Erro Dashboard:", e);
-      setHasError(true);
+      // Só mostra erro se não tivermos nenhum dado anterior
+      if (data.products === 0 && data.clients === 0) {
+        setHasError(true);
+      }
     } finally {
+      clearTimeout(dashboardTimeout);
       setIsLoading(false);
+      setIsSyncing(false);
     }
   };
 
   useEffect(() => { 
-    loadData();
-    const subProd = db.subscribe('products', loadData);
-    const subCli = db.subscribe('clients', loadData);
-    const subSrv = db.subscribe('services', loadData);
-    const subAct = db.subscribe('activities', loadData);
+    loadData(true);
+    const subProd = db.subscribe('products', () => loadData(false));
+    const subCli = db.subscribe('clients', () => loadData(false));
+    const subSrv = db.subscribe('services', () => loadData(false));
+    const subAct = db.subscribe('activities', () => loadData(false));
     return () => {
       subProd.unsubscribe();
       subCli.unsubscribe();
@@ -141,9 +160,18 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
   };
 
   if (isLoading) return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+    <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6">
       <Loader2 className="w-10 h-10 text-[#004282] animate-spin" />
-      <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Sincronizando em tempo real...</p>
+      <div className="text-center">
+        <p className="text-sm font-black text-slate-400 uppercase tracking-widest">Sincronizando em tempo real...</p>
+        <p className="text-[10px] text-slate-300 mt-2">Isso pode levar alguns segundos dependendo da sua conexão</p>
+      </div>
+      <button 
+        onClick={() => setIsLoading(false)}
+        className="text-[10px] font-black text-slate-400 uppercase tracking-widest border border-slate-200 px-6 py-2 rounded-full hover:bg-slate-50 transition-all"
+      >
+        Pular Carregamento
+      </button>
     </div>
   );
 
@@ -164,7 +192,14 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
   );
 
   return (
-    <div className="space-y-10 animate-fadeIn text-left">
+    <div className="space-y-10 animate-fadeIn text-left relative">
+      {isSyncing && !isLoading && (
+        <div className="absolute top-0 right-0 flex items-center space-x-2 bg-blue-50 px-4 py-2 rounded-full border border-blue-100 animate-pulse z-50">
+          <Loader2 className="w-3 h-3 text-[#004282] animate-spin" />
+          <span className="text-[9px] font-black text-[#004282] uppercase tracking-widest">Sincronizando...</span>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
           <h2 className="text-4xl font-black text-slate-900 tracking-tighter uppercase">Dashboard</h2>

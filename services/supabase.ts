@@ -75,7 +75,7 @@ const withTimeout = async (promise: any, timeoutMs: number = 90000) => {
 };
 
 // Helper para retentativa em operações críticas
-const withRetry = async (fn: () => any, retries: number = 10, timeoutMs: number = 60000, retryOnSupabaseError: boolean = false) => {
+const withRetry = async (fn: () => any, retries: number = 5, timeoutMs: number = 45000, retryOnSupabaseError: boolean = false) => {
   let lastError: any;
   console.log(`[DB] Iniciando operação com ${retries} retentativas e timeout de ${timeoutMs}ms`);
   for (let i = 0; i < retries; i++) {
@@ -97,13 +97,12 @@ const withRetry = async (fn: () => any, retries: number = 10, timeoutMs: number 
       return result;
     } catch (err: any) {
       lastError = err;
-      const errMsg = err.message?.toLowerCase() || '';
       console.warn(`[DB] Tentativa ${i + 1} falhou: ${err.message}`);
       
       // Se for erro de rede ou timeout, retentamos com delay exponencial
       if (i < retries - 1) {
-        // Delay exponencial: ~1s, ~2.5s, ~6s, ~15s...
-        const delay = Math.pow(2.2, i) * 1000 + (Math.random() * 500);
+        // Delay exponencial: ~1.5s, ~3.5s, ~8s...
+        const delay = Math.pow(2.3, i) * 1500 + (Math.random() * 500);
         console.log(`[DB] Retentando em ${Math.round(delay)}ms...`);
         await new Promise(r => setTimeout(r, delay));
       }
@@ -133,8 +132,8 @@ export const db = {
     },
     getSession: async () => {
       try {
-        // Sessão inicial: 10 retentativas de 60s.
-        const { data, error } = await withRetry(() => supabase.auth.getSession(), 10, 60000, true);
+        // Sessão inicial: 5 retentativas de 45s.
+        const { data, error } = await withRetry(() => supabase.auth.getSession(), 5, 45000, true);
         if (error) throw error;
         return data?.session;
       } catch (error) {
@@ -147,8 +146,8 @@ export const db = {
   testConnection: async () => {
     try {
       console.log("[DB] Testando conexão com Supabase...");
-      // Teste de conexão: 10 retentativas de 60s.
-      const result = await withRetry(() => supabase.from('products').select('id').limit(1), 10, 60000, true);
+      // Teste de conexão: 5 retentativas de 45s.
+      const result = await withRetry(() => supabase.from('products').select('id').limit(1), 5, 45000, true);
       if (result.error) {
         console.error("[DB] Erro retornado pelo Supabase no teste:", result.error);
         throw result.error;
@@ -173,7 +172,7 @@ export const db = {
   products: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 5, 45000);
+        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -194,7 +193,7 @@ export const db = {
   clients: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 3, 20000);
+        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -215,7 +214,7 @@ export const db = {
   services: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 3, 20000);
+        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -270,8 +269,8 @@ export const db = {
     },
     getByEmail: async (email: string) => {
       try {
-        // Metadados do usuário: 10 retentativas de 60s.
-        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 10, 60000, true);
+        // Metadados do usuário: 5 retentativas de 45s.
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 5, 45000, true);
         if (error) throw error;
         return data;
       } catch (error) {
@@ -292,7 +291,7 @@ export const db = {
   activities: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 3, 20000);
+        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -311,7 +310,7 @@ export const db = {
   sales: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 3, 20000);
+        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -332,7 +331,7 @@ export const db = {
   tracking: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 3, 20000);
+        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -353,7 +352,7 @@ export const db = {
   stock_movements: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 5, 45000);
+        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 2, 30000);
         if (error) throw error;
         return data || [];
       } catch (error) {
