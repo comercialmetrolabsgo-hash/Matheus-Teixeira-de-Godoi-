@@ -130,11 +130,21 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
 
   useEffect(() => { 
     loadData(true);
-    const subProd = db.subscribe('products', () => loadData(false));
-    const subCli = db.subscribe('clients', () => loadData(false));
-    const subSrv = db.subscribe('services', () => loadData(false));
-    const subAct = db.subscribe('activities', () => loadData(false));
+
+    // Debounce para evitar múltiplas recargas rápidas em atualizações em tempo real
+    let debounceTimer: any;
+    const debouncedLoad = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => loadData(false), 2000);
+    };
+
+    const subProd = db.subscribe('products', debouncedLoad);
+    const subCli = db.subscribe('clients', debouncedLoad);
+    const subSrv = db.subscribe('services', debouncedLoad);
+    const subAct = db.subscribe('activities', debouncedLoad);
+
     return () => {
+      clearTimeout(debounceTimer);
       subProd.unsubscribe();
       subCli.unsubscribe();
       subSrv.unsubscribe();

@@ -3,8 +3,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, Search, Edit2, Trash2, X, Save, Loader2, AlertCircle, CheckCircle2,
   Boxes, AlertTriangle, Copy, Check, Trash, Info, Tag, Truck, ShieldCheck, 
-  FileText, Image as ImageIcon, Upload, Camera, Calendar, History
+  FileText, Image as ImageIcon, Upload, Camera, Calendar, History, RefreshCw
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Product } from '../types';
 import { db } from '../services/supabase';
 
@@ -18,6 +19,8 @@ const Products: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [operationSuccess, setOperationSuccess] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<Product | null>(null);
@@ -44,11 +47,25 @@ const Products: React.FC = () => {
   const [formData, setFormData] = useState(initialFormState);
 
   const loadData = async () => {
+    setIsLoading(true);
+    setHasError(false);
     try {
       const data = await db.products.getAll();
       setProducts(data || []);
-    } catch (e) {
+      if (!data || data.length === 0) {
+        // Se não houver dados, vamos testar a conexão para ver se é um erro silencioso
+        const isConnected = await db.testConnection();
+        if (!isConnected) {
+          setHasError(true);
+          toast.error("Erro de conexão com o banco de dados.");
+        }
+      }
+    } catch (e: any) {
       console.error("Erro ao carregar produtos:", e);
+      setHasError(true);
+      toast.error("Erro ao carregar produtos: " + (e.message || "Erro de conexão"));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -214,7 +231,24 @@ const Products: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredProducts.length > 0 ? filteredProducts.map(p => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-8 py-24 text-center opacity-20">
+                      <Loader2 className="w-16 h-16 mx-auto mb-4 animate-spin" />
+                      <p className="font-black uppercase text-[10px] tracking-widest">Sincronizando base de dados...</p>
+                    </td>
+                  </tr>
+                ) : hasError ? (
+                  <tr>
+                    <td colSpan={6} className="px-8 py-24 text-center">
+                      <AlertTriangle className="w-16 h-16 mx-auto mb-4 text-red-500 opacity-50" />
+                      <p className="font-black uppercase text-[10px] tracking-widest text-red-600 mb-4">Falha na conexão com o banco de dados</p>
+                      <button onClick={loadData} className="px-6 py-3 bg-[#004282] text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-900 transition-all">
+                        Tentar Novamente
+                      </button>
+                    </td>
+                  </tr>
+                ) : filteredProducts.length > 0 ? filteredProducts.map(p => {
                   const expired = isExpired(p.expiry_date);
                   return (
                     <tr key={p.id} className="hover:bg-slate-50 group cursor-pointer transition-colors" onClick={() => { setEditingProduct(p); setFormData({...p} as any); setShowModal(true); }}>
@@ -263,7 +297,10 @@ const Products: React.FC = () => {
                   <tr>
                     <td colSpan={6} className="px-8 py-24 text-center opacity-20">
                       <Boxes className="w-16 h-16 mx-auto mb-4" />
-                      <p className="font-black uppercase text-[10px] tracking-widest">Sincronizando base de dados...</p>
+                      <p className="font-black uppercase text-[10px] tracking-widest">Nenhum produto encontrado</p>
+                      <button onClick={loadData} className="mt-4 px-4 py-2 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all">
+                        Atualizar Lista
+                      </button>
                     </td>
                   </tr>
                 )}

@@ -4,7 +4,13 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = 'https://zgvcfefpgefplqmblunr.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_O3DGDJJFKNjkTct4Z-95Qg_JR6hf2Oc';
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 
 const prepareData = (item: any) => {
   const { id, created_at, ...rawPayload } = item;
@@ -75,11 +81,23 @@ const withTimeout = async (promise: any, timeoutMs: number = 90000) => {
 };
 
 // Helper para retentativa em operações críticas
-const withRetry = async (fn: () => any, retries: number = 5, timeoutMs: number = 60000, retryOnSupabaseError: boolean = false) => {
+const withRetry = async (fn: () => any, retries: number = 5, timeoutMs: number = 90000, retryOnSupabaseError: boolean = false) => {
   let lastError: any;
   console.log(`[DB] Iniciando operação com ${retries} retentativas e timeout de ${timeoutMs}ms`);
+  
   for (let i = 0; i < retries; i++) {
     try {
+      // Verificar se o navegador está online antes de tentar
+      if (typeof window !== 'undefined' && !window.navigator.onLine) {
+        throw new Error('Você parece estar offline. Verifique sua conexão com a internet.');
+      }
+
+      // Adicionamos um pequeno jitter inicial para evitar colisões em carregamentos paralelos
+      if (i > 0) {
+        const jitter = Math.random() * 2000;
+        await new Promise(r => setTimeout(r, jitter));
+      }
+
       const result = await withTimeout(fn(), timeoutMs);
       
       // Se a função retorna o padrão do Supabase { data, error }
@@ -132,8 +150,8 @@ export const db = {
     },
     getSession: async () => {
       try {
-        // Sessão inicial: 5 retentativas de 45s.
-        const { data, error } = await withRetry(() => supabase.auth.getSession(), 5, 45000, true);
+        // Sessão inicial: 5 retentativas de 90s.
+        const { data, error } = await withRetry(() => supabase.auth.getSession(), 5, 90000, true);
         if (error) throw error;
         return data?.session;
       } catch (error) {
@@ -146,8 +164,8 @@ export const db = {
   testConnection: async () => {
     try {
       console.log("[DB] Testando conexão com Supabase...");
-      // Teste de conexão: 5 retentativas de 45s.
-      const result = await withRetry(() => supabase.from('products').select('id').limit(1), 5, 45000, true);
+      // Teste de conexão: 5 retentativas de 90s.
+      const result = await withRetry(() => supabase.from('products').select('id').limit(1), 5, 90000, true);
       if (result.error) {
         console.error("[DB] Erro retornado pelo Supabase no teste:", result.error);
         throw result.error;
@@ -172,7 +190,7 @@ export const db = {
   products: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -193,7 +211,7 @@ export const db = {
   clients: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -214,7 +232,7 @@ export const db = {
   services: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -259,7 +277,7 @@ export const db = {
   users: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('users').select('*').order('full_name'), 5, 45000);
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').order('full_name'), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -269,9 +287,8 @@ export const db = {
     },
     getByEmail: async (email: string) => {
       try {
-        // Metadados do usuário: 3 retentativas de 45s.
-        // Reduzimos para 3 para falhar mais rápido e acionar o fallback do App.tsx
-        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 3, 45000, true);
+        // Metadados do usuário: 5 retentativas de 90s.
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 5, 90000, true);
         if (error) throw error;
         return data;
       } catch (error) {
@@ -292,7 +309,7 @@ export const db = {
   activities: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -311,7 +328,7 @@ export const db = {
   sales: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -332,7 +349,7 @@ export const db = {
   tracking: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -353,7 +370,7 @@ export const db = {
   stock_movements: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 5, 60000);
+        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 5, 90000, true);
         if (error) throw error;
         return data || [];
       } catch (error) {

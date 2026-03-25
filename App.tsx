@@ -14,8 +14,9 @@ import { AppSection, User } from './types';
 import { db, supabase } from './services/supabase';
 import { 
   Lock, Menu, X, ArrowRight, Loader2, AlertCircle, Maximize2, Minimize2, 
-  ShieldCheck, Mail, Key, Shield
+  ShieldCheck, Mail, Key, Shield, RefreshCw
 } from 'lucide-react';
+import { Toaster, toast } from 'sonner';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -55,11 +56,11 @@ const App: React.FC = () => {
         setIsInitializing(true);
       }
       
-      // Timeout de segurança para a inicialização (45 segundos)
+      // Timeout de segurança para a inicialização (120 segundos)
       const initTimeout = setTimeout(() => {
         setIsInitializing(false);
         console.warn("[App] Inicialização demorando muito, liberando tela.");
-      }, 45000);
+      }, 120000);
 
       // Iniciar teste de conexão em background
       db.testConnection().then(isConnected => {
@@ -109,14 +110,27 @@ const App: React.FC = () => {
     const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
+    // Monitorar status da internet
+    const handleOnline = () => toast.success("Conexão com a internet restabelecida.");
+    const handleOffline = () => toast.error("Você está offline. Algumas funções podem não funcionar.", { duration: Infinity });
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
     return () => {
       subscription.unsubscribe();
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
   const fetchUserData = async (email: string) => {
     try {
+      // Tentar pegar metadados do Auth primeiro como backup rápido
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const authName = authUser?.user_metadata?.full_name || authUser?.email?.split('@')[0];
+
       // Deixamos o db.users.getByEmail gerenciar suas próprias retentativas e timeouts
       const userMetadata = await db.users.getByEmail(email);
 
@@ -124,7 +138,7 @@ const App: React.FC = () => {
         const fullUser: User = {
           id: userMetadata.id,
           username: userMetadata.username || email.split('@')[0],
-          full_name: userMetadata.full_name,
+          full_name: userMetadata.full_name || authName,
           email: email,
           role: userMetadata.role || 'user'
         };
@@ -137,7 +151,7 @@ const App: React.FC = () => {
         const fallbackUser: User = {
           id: email, 
           username: email.split('@')[0],
-          full_name: email.split('@')[0],
+          full_name: authName,
           email: email,
           role: 'user'
         };
@@ -323,6 +337,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans">
+      <Toaster position="top-right" richColors closeButton />
       <Sidebar currentSection={currentSection} setSection={s => { setCurrentSection(s); setIsSidebarOpen(false); }} user={currentUser!} onLogout={handleLogout} isOpen={isSidebarOpen} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="bg-white border-b border-slate-200 h-24 px-10 flex items-center justify-between sticky top-0 z-40 shrink-0">
@@ -336,6 +351,15 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center space-x-6">
+            <button 
+              onClick={() => window.location.reload()} 
+              title="Forçar Sincronização"
+              className="p-3 text-slate-400 hover:text-[#74C044] transition-all flex items-center space-x-2"
+            >
+              <Loader2 className="w-4 h-4" />
+              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">Sincronizar</span>
+            </button>
+
             <button onClick={toggleFullscreen} className="p-3 text-slate-400 hover:text-[#004282] transition-all">
               {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
             </button>
