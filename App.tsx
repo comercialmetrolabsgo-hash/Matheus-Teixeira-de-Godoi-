@@ -7,6 +7,7 @@ import Clients from './components/Clients';
 import Services from './components/Services';
 import Reports from './components/Reports';
 import Tracking from './components/Tracking';
+import StockMovements from './components/StockMovements';
 import Logo from './components/Logo';
 import ClientSignatureView from './components/ClientSignatureView';
 import { AppSection, User } from './types';
@@ -18,6 +19,7 @@ import {
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentSection, setCurrentSection] = useState<AppSection>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -32,20 +34,31 @@ const App: React.FC = () => {
   useEffect(() => {
     // Verificar sessão ativa ao carregar
     const initAuth = async () => {
-      try {
-        // Testar conexão com o banco
-        const isConnected = await db.testConnection();
+      setIsInitializing(true);
+      
+      // Timeout de segurança para a inicialização (300 segundos / 5 minutos)
+      const initTimeout = setTimeout(() => {
+        setIsInitializing(false);
+        console.warn("[App] Inicialização demorando muito, liberando tela de login.");
+      }, 300000);
+
+      // Iniciar teste de conexão em background para não bloquear o login
+      db.testConnection().then(isConnected => {
         if (!isConnected) {
           console.warn("[App] Aplicativo iniciando sem conexão estável com o banco.");
         }
-        
-        const { data, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        if (data?.session?.user) {
-          await fetchUserData(data.session.user.email!);
+      });
+      
+      try {
+        const session = await db.auth.getSession();
+        if (session?.user) {
+          await fetchUserData(session.user.email!);
         }
       } catch (err) {
         console.error("Erro ao inicializar auth:", err);
+      } finally {
+        clearTimeout(initTimeout);
+        setIsInitializing(false);
       }
     };
     initAuth();
@@ -113,6 +126,7 @@ const App: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[App] Iniciando processo de login...");
     setIsLoadingLogin(true);
     setLoginError(null);
 
@@ -137,6 +151,30 @@ const App: React.FC = () => {
 
   if (signOsId) {
     return <ClientSignatureView serviceId={signOsId} />;
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-[#004282] flex flex-col items-center justify-center p-4">
+        <div className="relative mb-8">
+          <div className="absolute inset-0 bg-blue-400/20 rounded-full blur-2xl animate-pulse"></div>
+          <Logo variant="light" className="w-48 h-auto relative z-10" />
+        </div>
+        <div className="flex flex-col items-center space-y-6">
+          <Loader2 className="w-10 h-10 text-white animate-spin" />
+          <div className="text-center">
+            <p className="text-white/80 font-medium text-lg">Iniciando sistema...</p>
+            <p className="text-white/40 text-xs mt-2 uppercase tracking-widest">Conectando ao banco de dados seguro</p>
+          </div>
+          <button 
+            onClick={() => setIsInitializing(false)}
+            className="text-white/30 hover:text-white/60 text-[10px] uppercase tracking-widest transition-colors border border-white/10 px-4 py-2 rounded-full"
+          >
+            Pular inicialização
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
@@ -275,6 +313,7 @@ const App: React.FC = () => {
             {currentSection === 'clients' && <Clients />}
             {currentSection === 'services' && <Services />}
             {currentSection === 'tracking' && <Tracking />}
+            {currentSection === 'stock_movements' && <StockMovements />}
             {currentSection === 'reports' && <Reports />}
           </div>
         </main>

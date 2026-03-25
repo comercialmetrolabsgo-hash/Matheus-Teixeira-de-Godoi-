@@ -185,14 +185,17 @@ const Products: React.FC = () => {
             <p className="text-sm text-slate-400 font-medium italic mt-1">Gestão de catálogo e estoque Metrolab.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="relative">
+            <div className="relative flex-1 md:flex-none">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-5 h-5" />
-              <input type="text" placeholder="Buscar no catálogo..." className="h-[56px] w-full md:w-80 pl-12 pr-6 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:border-[#004282] shadow-sm transition-all font-semibold"
+              <input type="text" placeholder="Buscar no catálogo..." className="h-[56px] w-full md:w-80 pl-12 pr-12 bg-white border border-slate-200 rounded-2xl text-sm outline-none focus:border-[#004282] shadow-sm transition-all font-semibold"
                 value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              <button className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-[#004282] transition-colors">
+                <Camera className="w-5 h-5" />
+              </button>
             </div>
             <button onClick={() => { setEditingProduct(null); setFormData(initialFormState); setShowModal(true); }} className="h-[56px] bg-[#74C044] text-white px-10 rounded-2xl font-black text-[11px] uppercase tracking-widest flex items-center space-x-3 shadow-lg hover:bg-[#65a83b] transition-all transform active:scale-95">
               <Plus className="w-5 h-5" />
-              <span>Novo Registro</span>
+              <span className="hidden sm:inline">Novo Registro</span>
             </button>
           </div>
         </div>
@@ -362,9 +365,23 @@ const Products: React.FC = () => {
                    <div className="space-y-6">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Saldo Atual</label>
-                          <input type="number" className="w-full bg-slate-50 border-none rounded-2xl px-6 py-4 font-bold text-slate-700 outline-none" 
-                            value={formData.stock} onChange={e => setFormData({...formData, stock: Number(e.target.value)})} />
+                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center justify-between">
+                            Saldo Atual
+                            {editingProduct && (
+                              <span className="text-[8px] text-indigo-500 lowercase font-bold tracking-normal flex items-center">
+                                <Info className="w-2.5 h-2.5 mr-1" /> use movimentações para alterar
+                              </span>
+                            )}
+                          </label>
+                          <input 
+                            type="number" 
+                            disabled={!!editingProduct}
+                            className={`w-full bg-slate-50 border-none rounded-2xl px-6 py-4 font-bold outline-none transition-all ${
+                              editingProduct ? 'text-slate-400 cursor-not-allowed opacity-60' : 'text-slate-700 focus:ring-2 focus:ring-[#004282]/5'
+                            }`} 
+                            value={formData.stock} 
+                            onChange={e => setFormData({...formData, stock: Number(e.target.value)})} 
+                          />
                         </div>
                         <div className="space-y-2">
                           <label className="text-[10px] font-black text-red-400 uppercase tracking-widest ml-1">Mínimo Crítico</label>

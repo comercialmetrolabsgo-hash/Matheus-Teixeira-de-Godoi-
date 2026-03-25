@@ -1,0 +1,21 @@
+{
+  "name": "METROLAB'S - Sistema de Gestão",
+  "short_name": "Metrolab",
+  "description": "Sistema de Gestão de Engenharia Clínica e Manutenção",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#004282",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/metrolab/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/metrolab/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

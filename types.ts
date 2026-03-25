@@ -79,6 +79,20 @@ export interface TrackingItem {
   status: string;
 }
 
+export interface StockMovement {
+  id: string | number;
+  product_id: string | number;
+  product_name: string;
+  type: 'in' | 'out';
+  quantity: number;
+  destination: string;
+  requester: string;
+  reason: string;
+  date: string;
+  user_id?: string;
+  created_at?: string;
+}
+
 export interface Sale {
   id: string | number;
   client_id: string | number;
@@ -123,6 +137,7 @@ export interface Service {
   created_at?: string;
   signature?: string;
   attachments?: ServiceAttachment[];
+  checklist?: { task: string; completed: boolean }[];
 }
 
-export type AppSection = 'dashboard' | 'products' | 'clients' | 'services' | 'tracking' | 'reports';
+export type AppSection = 'dashboard' | 'products' | 'clients' | 'services' | 'tracking' | 'reports' | 'stock_movements';

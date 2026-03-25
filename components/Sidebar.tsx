@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Boxes, Users, Wrench, BarChart, Shield, LogOut, Key, Loader2, CheckCircle2, Truck } from 'lucide-react';
+import { LayoutDashboard, Boxes, Users, Wrench, BarChart, Shield, LogOut, Key, Loader2, CheckCircle2, Truck, ArrowLeftRight } from 'lucide-react';
 import { AppSection, User } from '../types';
 import Logo from './Logo';
 
@@ -19,6 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentSection, setSection, user, onL
   const navItems = [
     { id: 'dashboard' as AppSection, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'products' as AppSection, label: 'Produtos e Insumos', icon: Boxes },
+    { id: 'stock_movements' as AppSection, label: 'Movimentação de Estoque', icon: ArrowLeftRight },
     { id: 'clients' as AppSection, label: 'Carteira de Clientes', icon: Users },
     { id: 'services' as AppSection, label: 'Ordens de Serviço', icon: Wrench },
     {id: 'tracking' as AppSection, label: 'Logística e Rastreio', icon: Truck},

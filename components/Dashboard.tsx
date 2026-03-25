@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Boxes, Users, Wrench, DollarSign, RefreshCcw, CheckCircle2, PlayCircle, Loader2, FileCheck, AlertTriangle } from 'lucide-react';
+import { Boxes, Users, Wrench, DollarSign, RefreshCcw, CheckCircle2, PlayCircle, Loader2, FileCheck, AlertTriangle, Clock } from 'lucide-react';
 import { db } from '../services/supabase';
 import { Activity, Product, Service, User as UserType, AppSection } from '../types';
 
@@ -31,13 +31,17 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
     services: 0,
     totalStockValue: 0,
     activities: [] as Activity[],
-    myServices: [] as Service[]
+    myServices: [] as Service[],
+    alerts: {
+      criticalStock: [] as Product[],
+      expiringSoon: [] as Product[],
+      stalledServices: [] as Service[]
+    }
   });
 
   const loadData = async () => {
     try {
       setHasError(false);
-      // Carregamento individual para não travar tudo se uma tabela falhar
       const products = await db.products.getAll().catch(() => []);
       const clients = await db.clients.getAll().catch(() => []);
       const services = await db.services.getAll().catch(() => []);
@@ -56,6 +60,26 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
       const totalStockValue = (products || []).reduce((acc, p) => {
         return acc + ((p.costPrice || 0) * (p.stock || 0));
       }, 0);
+
+      // Lógica de Alertas
+      const criticalStock = (products || []).filter(p => (p.stock || 0) <= (p.minStock || 0));
+      
+      const today = new Date();
+      const nextMonth = new Date();
+      nextMonth.setDate(today.getDate() + 30);
+      
+      const expiringSoon = (products || []).filter(p => {
+        if (!p.expiry_date) return false;
+        const expiry = new Date(p.expiry_date + 'T23:59:59');
+        return expiry > today && expiry <= nextMonth;
+      });
+
+      const stalledServices = (services || []).filter(s => {
+        if (s.status !== 'in_progress') return false;
+        const created = new Date(s.created_at || s.date);
+        const diffHours = (today.getTime() - created.getTime()) / (1000 * 60 * 60);
+        return diffHours > 48;
+      });
       
       setData({
         products: products.length,
@@ -63,7 +87,12 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
         services: (services || []).filter((s: any) => s.status !== 'completed').length,
         totalStockValue: totalStockValue,
         activities: (activities || []).slice(0, 5),
-        myServices: myServices
+        myServices: myServices,
+        alerts: {
+          criticalStock,
+          expiringSoon,
+          stalledServices
+        }
       });
     } catch (e) {
       console.error("Erro Dashboard:", e);
@@ -149,6 +178,42 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
         <StatCard label="O.S. em Aberto" value={data.services.toString()} icon={<Wrench />} color="bg-orange-50 text-orange-600" />
         <StatCard label="Patrimônio" value={new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(data.totalStockValue)} icon={<DollarSign />} color="bg-emerald-50 text-emerald-600" />
       </div>
+
+      {/* Painel de Alertas Inteligentes */}
+      {(data.alerts.criticalStock.length > 0 || data.alerts.expiringSoon.length > 0 || data.alerts.stalledServices.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-slideUp">
+          {data.alerts.criticalStock.length > 0 && (
+            <div className="bg-red-50 border border-red-100 p-6 rounded-[2rem] flex items-start space-x-4">
+              <div className="p-3 bg-red-100 text-red-600 rounded-xl"><AlertTriangle className="w-5 h-5" /></div>
+              <div>
+                <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Estoque Crítico</p>
+                <p className="text-sm font-bold text-red-900 mt-1">{data.alerts.criticalStock.length} itens abaixo do mínimo</p>
+                <button onClick={() => setSection('products')} className="text-[9px] font-black text-red-600 uppercase mt-2 hover:underline">Verificar Itens</button>
+              </div>
+            </div>
+          )}
+          {data.alerts.expiringSoon.length > 0 && (
+            <div className="bg-amber-50 border border-amber-100 p-6 rounded-[2rem] flex items-start space-x-4">
+              <div className="p-3 bg-amber-100 text-amber-600 rounded-xl"><Clock className="w-5 h-5" /></div>
+              <div>
+                <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Vencimento Próximo</p>
+                <p className="text-sm font-bold text-amber-900 mt-1">{data.alerts.expiringSoon.length} itens vencem em 30 dias</p>
+                <button onClick={() => setSection('products')} className="text-[9px] font-black text-amber-600 uppercase mt-2 hover:underline">Gerenciar Lotes</button>
+              </div>
+            </div>
+          )}
+          {data.alerts.stalledServices.length > 0 && (
+            <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-[2rem] flex items-start space-x-4">
+              <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl"><RefreshCcw className="w-5 h-5" /></div>
+              <div>
+                <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">O.S. Estagnadas</p>
+                <p className="text-sm font-bold text-indigo-900 mt-1">{data.alerts.stalledServices.length} serviços sem atualização</p>
+                <button onClick={() => setSection('services')} className="text-[9px] font-black text-indigo-600 uppercase mt-2 hover:underline">Revisar Fluxo</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">

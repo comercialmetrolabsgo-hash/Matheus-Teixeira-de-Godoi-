@@ -14,7 +14,9 @@ const Reports: React.FC = () => {
     activeServices: 0,
     completedServices: 0,
     potentialRevenue: 0,
-    lowStockCount: 0
+    lowStockCount: 0,
+    abcCurve: [] as { name: string; value: number; percentage: number; category: string }[],
+    technicianProductivity: [] as { name: string; count: number; value: number }[]
   });
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -34,14 +36,50 @@ const Reports: React.FC = () => {
 
       setProducts(productsData);
 
+      // ABC Curve Logic (based on stock value)
+      const totalValue = productsData.reduce((acc: number, p: any) => acc + ((p.costPrice || 0) * (p.stock || 0)), 0);
+      const sortedProducts = [...productsData].sort((a, b) => 
+        ((b.costPrice || 0) * (b.stock || 0)) - ((a.costPrice || 0) * (a.stock || 0))
+      );
+
+      let cumulativeValue = 0;
+      const abcCurve = sortedProducts.slice(0, 10).map(p => {
+        const value = (p.costPrice || 0) * (p.stock || 0);
+        cumulativeValue += value;
+        return {
+          name: p.name,
+          value: value,
+          percentage: totalValue > 0 ? (value / totalValue) * 100 : 0,
+          category: cumulativeValue / totalValue <= 0.7 ? 'A' : cumulativeValue / totalValue <= 0.9 ? 'B' : 'C'
+        };
+      });
+
+      // Technician Productivity
+      const techMap = new Map<string, { count: number; value: number }>();
+      services.forEach((s: any) => {
+        if (s.status === 'completed' && s.responsible) {
+          const current = techMap.get(s.responsible) || { count: 0, value: 0 };
+          techMap.set(s.responsible, {
+            count: current.count + 1,
+            value: current.value + (s.price || 0)
+          });
+        }
+      });
+
+      const technicianProductivity = Array.from(techMap.entries())
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.count - a.count);
+
       setStats({
         totalProducts: productsData.length,
-        totalStockValue: productsData.reduce((acc: number, p: any) => acc + ((p.costPrice || 0) * (p.stock || 0)), 0),
+        totalStockValue: totalValue,
         totalClients: clients.length,
         activeServices: services.filter((s: any) => s.status !== 'completed').length,
         completedServices: services.filter((s: any) => s.status === 'completed').length,
         potentialRevenue: services.reduce((acc: number, s: any) => acc + (s.price || 0), 0),
-        lowStockCount: productsData.filter((p: any) => (p.stock || 0) <= (p.minStock || 0)).length
+        lowStockCount: productsData.filter((p: any) => (p.stock || 0) <= (p.minStock || 0)).length,
+        abcCurve,
+        technicianProductivity
       });
     } catch (e) {
       console.error("Erro no carregamento de relatórios:", e);
@@ -171,6 +209,62 @@ const Reports: React.FC = () => {
           <div className="bg-[#004282] p-8 rounded-[2.5rem] shadow-xl text-white flex flex-col justify-between">
             <div className="flex items-center justify-between mb-8"><div className="p-4 bg-white/10 text-white rounded-2xl"><TrendingUp className="w-7 h-7" /></div><span className="text-[10px] font-black text-blue-200 uppercase tracking-widest">Volume O.S.</span></div>
             <div><p className="text-3xl font-black">R$ {stats.potentialRevenue.toLocaleString('pt-BR')}</p><p className="text-[10px] font-black text-blue-200 uppercase mt-2 italic">Faturamento Bruto em Serviços</p></div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center">
+              <TrendingUp className="w-5 h-5 mr-2 text-indigo-600" /> Curva ABC de Insumos (Top 10)
+            </h3>
+            <div className="space-y-4">
+              {stats.abcCurve.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                  <div className="flex items-center space-x-4">
+                    <span className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${item.category === 'A' ? 'bg-red-100 text-red-600' : item.category === 'B' ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
+                      {item.category}
+                    </span>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 uppercase">{item.name}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">R$ {item.value.toLocaleString('pt-BR')}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-slate-800">{item.percentage.toFixed(1)}%</p>
+                    <div className="w-24 h-1.5 bg-slate-200 rounded-full mt-1 overflow-hidden">
+                      <div className={`h-full rounded-full ${item.category === 'A' ? 'bg-red-500' : item.category === 'B' ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${item.percentage}%` }}></div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100">
+            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight mb-6 flex items-center">
+              <Users className="w-5 h-5 mr-2 text-[#74C044]" /> Produtividade da Equipe
+            </h3>
+            <div className="space-y-4">
+              {stats.technicianProductivity.length > 0 ? stats.technicianProductivity.map((tech, idx) => (
+                <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-10 h-10 bg-[#004282] text-white rounded-xl flex items-center justify-center font-black text-xs">
+                      {tech.name.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 uppercase">{tech.name}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{tech.count} O.S. Finalizadas</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-[#74C044]">R$ {tech.value.toLocaleString('pt-BR')}</p>
+                    <p className="text-[9px] font-black text-slate-300 uppercase">Valor Gerado</p>
+                  </div>
+                </div>
+              )) : (
+                <div className="p-10 text-center text-slate-300 italic text-sm">Aguardando finalização de serviços para gerar métricas.</div>
+              )}
+            </div>
           </div>
         </div>
       </div>

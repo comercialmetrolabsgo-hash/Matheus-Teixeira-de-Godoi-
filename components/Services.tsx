@@ -5,7 +5,7 @@ import {
   Camera, Image as ImageIcon, PlusCircle, Wrench, Check, Share2, 
   Printer, FileText, ExternalLink, ShieldCheck, Download, FileDown, 
   ImageIcon as ImageIconLucide, ImagePlus, Truck, MapPin, Calendar, Clock,
-  ChevronRight, AlertCircle, UserCheck, Users
+  ChevronRight, AlertCircle, UserCheck, Users, Barcode
 } from 'lucide-react';
 import { Service, Client, User as UserType, ServiceTaskType, ServiceAttachment } from '../types';
 import { db } from '../services/supabase';
@@ -25,10 +25,12 @@ const Services: React.FC = () => {
   
   const [showModal, setShowModal] = useState(false);
   const [activeTab, setActiveTab] = useState<ModalTab>('Geral');
+  const [checklistInput, setChecklistInput] = useState('');
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isCertificateMode, setIsCertificateMode] = useState(false);
 
   const [showQuickTaskType, setShowQuickTaskType] = useState(false);
   const [quickTaskName, setQuickTaskName] = useState('');
@@ -41,6 +43,10 @@ const Services: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [operationSuccess, setOperationSuccess] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [techFilter, setTechFilter] = useState<string>('all');
 
   const initialFormData: Partial<Service> = {
     client_id: '',
@@ -63,7 +69,8 @@ const Services: React.FC = () => {
     signature: '',
     signature_name: '',
     signature_cpf: '',
-    attachments: []
+    attachments: [],
+    checklist: []
   };
 
   const [formData, setFormData] = useState(initialFormData);
@@ -191,9 +198,10 @@ const Services: React.FC = () => {
     }
   };
 
-  const handleDownloadPDF = (service: Service | Partial<Service>) => {
+  const handleDownloadPDF = (service: Service | Partial<Service>, isCertificate: boolean = false) => {
     if (!service.id) return alert("Salve a O.S. antes de gerar o PDF.");
     setIsGeneratingPDF(true);
+    setIsCertificateMode(isCertificate);
 
     const element = document.getElementById(`print-template-${service.id}`);
     if (!element) {
@@ -202,15 +210,16 @@ const Services: React.FC = () => {
     }
 
     const opt = {
-      margin: [0, 0, 0, 0],
-      filename: `Relatorio-Metrolab-OS-${service.id}.pdf`,
+      margin: 0,
+      filename: `${isCertificate ? 'CERTIFICADO' : 'OS'}_${service.id}_${new Date().getTime()}.pdf`,
       image: { type: 'jpeg', quality: 1 },
       html2canvas: { 
         scale: 2, 
         useCORS: true, 
         letterRendering: true,
         logging: false,
-        allowTaint: true
+        allowTaint: true,
+        windowWidth: 1200
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
@@ -235,6 +244,30 @@ const Services: React.FC = () => {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 3000);
     alert("Link de assinatura externa copiado!");
+  };
+
+  const addChecklistItem = () => {
+    if (!checklistInput.trim()) return;
+    setFormData(prev => ({
+      ...prev,
+      checklist: [...(prev.checklist || []), { task: checklistInput.trim(), completed: false }]
+    }));
+    setChecklistInput('');
+  };
+
+  const toggleChecklistItem = (index: number) => {
+    setFormData(prev => {
+      const newList = [...(prev.checklist || [])];
+      newList[index].completed = !newList[index].completed;
+      return { ...prev, checklist: newList };
+    });
+  };
+
+  const removeChecklistItem = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      checklist: (prev.checklist || []).filter((_, i) => i !== index)
+    }));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -318,23 +351,95 @@ const Services: React.FC = () => {
     return clients.find(c => String(c.id) === String(id));
   };
 
+  const handleQuickStatusUpdate = async (service: Service, newStatus: 'pending' | 'in_progress' | 'completed') => {
+    setIsActionLoading(true);
+    try {
+      const payload = { ...service, status: newStatus };
+      const result: any = await db.services.save(payload);
+      if (!result.error) {
+        await loadData();
+      } else {
+        alert("Erro ao atualizar status: " + result.error.message);
+      }
+    } catch (err: any) {
+      alert("Erro ao atualizar status: " + err.message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const filteredServices = services.filter(s => {
+    const matchesSearch = 
+      s.id.toString().toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.client_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.description.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+    const matchesTech = techFilter === 'all' || s.responsible === techFilter;
+
+    return matchesSearch && matchesStatus && matchesTech;
+  });
+
   return (
     <div className="pb-20 text-left">
       <div className="space-y-6 animate-fadeIn">
-        <div className="flex justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+        <div className="flex flex-col md:flex-row justify-between items-center bg-white p-8 rounded-3xl shadow-sm border border-slate-100 gap-6">
           <div>
             <h2 className="text-3xl font-black text-[#004282] uppercase tracking-tighter">Serviços e O.S.</h2>
             <p className="text-sm text-slate-400 italic font-medium">Controle operacional Metrolab's.</p>
           </div>
-          <button onClick={() => handleOpenModal()} className="bg-[#00c996] text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-lg hover:scale-105 transition-all uppercase text-xs tracking-widest">
-             <PlusCircle className="w-5 h-5" />
-             <span>Abrir Chamado</span>
-          </button>
+          <div className="flex items-center gap-4 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-5 h-5" />
+              <input 
+                type="text" 
+                placeholder="Buscar O.S..." 
+                className="h-[56px] w-full pl-12 pr-12 bg-slate-50 border border-slate-100 rounded-2xl text-sm outline-none focus:border-[#004282] shadow-sm transition-all font-semibold"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+              <button className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-[#004282] transition-colors">
+                <Barcode className="w-5 h-5" />
+              </button>
+            </div>
+            <button onClick={() => handleOpenModal()} className="bg-[#00c996] text-white px-8 py-4 rounded-2xl font-black flex items-center space-x-3 shadow-lg hover:scale-105 transition-all uppercase text-xs tracking-widest h-[56px]">
+               <PlusCircle className="w-5 h-5" />
+               <span className="hidden sm:inline">Abrir Chamado</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-2 bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 inline-flex">
-           <button onClick={() => setViewMode('calendar')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'calendar' ? 'bg-[#004282] text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Calendário</button>
-           <button onClick={() => setViewMode('list')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'list' ? 'bg-[#004282] text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Lista de O.S.</button>
+        <div className="flex flex-wrap items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+          <div className="flex items-center space-x-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-200">
+             <button onClick={() => setViewMode('calendar')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'calendar' ? 'bg-[#004282] text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Calendário</button>
+             <button onClick={() => setViewMode('list')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'list' ? 'bg-[#004282] text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>Lista de O.S.</button>
+          </div>
+
+          <div className="h-8 w-px bg-slate-200 hidden md:block"></div>
+
+          <div className="flex items-center gap-3">
+            <select 
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:border-[#004282]"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <option value="all">Todos os Status</option>
+              <option value="pending">Pendentes</option>
+              <option value="in_progress">Em Andamento</option>
+              <option value="completed">Finalizadas</option>
+            </select>
+
+            <select 
+              className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-[10px] font-black uppercase outline-none focus:border-[#004282]"
+              value={techFilter}
+              onChange={e => setTechFilter(e.target.value)}
+            >
+              <option value="all">Todos Técnicos</option>
+              {users.map(u => (
+                <option key={u.id} value={u.full_name}>{u.full_name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-xl overflow-hidden">
@@ -349,14 +454,16 @@ const Services: React.FC = () => {
                 </tr>
              </thead>
              <tbody className="divide-y divide-slate-50">
-                {services.map(s => (
+                {filteredServices.map(s => (
                   <tr key={s.id} className="hover:bg-slate-50 cursor-pointer transition-all group" onClick={() => handleOpenModal(s)}>
                      <td className="px-8 py-6">
                         <div className="flex items-center space-x-4">
-                          <div className={`w-3 h-3 rounded-full ${s.status === 'completed' ? 'bg-[#00c996]' : s.status === 'in_progress' ? 'bg-blue-500' : 'bg-orange-400'}`}></div>
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${s.status === 'completed' ? 'bg-green-50 text-green-600' : s.status === 'in_progress' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                            {s.status === 'completed' ? <CheckCircle className="w-5 h-5" /> : s.status === 'in_progress' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Clock className="w-5 h-5" />}
+                          </div>
                           <div>
                             <p className="text-sm font-black text-slate-800">#{s.id.toString().slice(0,6).toUpperCase()}</p>
-                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${s.status === 'completed' ? 'text-[#00c996]' : 'text-slate-400'}`}>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${s.status === 'completed' ? 'text-green-600' : s.status === 'in_progress' ? 'text-blue-600' : 'text-orange-500'}`}>
                               {s.status === 'completed' ? 'Finalizada' : s.status === 'in_progress' ? 'Em Andamento' : 'Pendente'}
                             </span>
                           </div>
@@ -375,10 +482,31 @@ const Services: React.FC = () => {
                      </td>
                      <td className="px-8 py-6 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center space-x-2">
-                          <button onClick={() => handleDownloadPDF(s)} disabled={isGeneratingPDF} className="p-3 bg-indigo-50 text-indigo-500 hover:bg-indigo-600 hover:text-white rounded-xl transition-all shadow-sm">
+                          {s.status === 'pending' && (
+                            <button 
+                              onClick={() => handleQuickStatusUpdate(s, 'in_progress')} 
+                              title="Iniciar Atendimento"
+                              className="p-3 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl transition-all shadow-sm"
+                            >
+                              <Loader2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          {s.status === 'in_progress' && (
+                            <button 
+                              onClick={() => handleOpenModal(s)} 
+                              title="Concluir Atendimento"
+                              className="p-3 bg-green-50 text-green-600 hover:bg-green-600 hover:text-white rounded-xl transition-all shadow-sm"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button onClick={() => handleDownloadPDF(s)} disabled={isGeneratingPDF} title="Gerar O.S." className="p-3 bg-indigo-50 text-indigo-500 hover:bg-indigo-600 hover:text-white rounded-xl transition-all shadow-sm">
                              {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
                           </button>
-                          <button onClick={() => handleShare(s.id)} className={`p-3 rounded-xl transition-all shadow-sm ${copiedId === s.id ? 'bg-[#00c996] text-white' : 'bg-slate-50 text-slate-400 hover:text-[#00c996]'}`}>
+                          <button onClick={() => handleDownloadPDF(s, true)} disabled={isGeneratingPDF} title="Certificado de Manutenção" className="p-3 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white rounded-xl transition-all shadow-sm">
+                             {isGeneratingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                          </button>
+                          <button onClick={() => handleShare(s.id)} title="Compartilhar Link" className={`p-3 rounded-xl transition-all shadow-sm ${copiedId === s.id ? 'bg-[#00c996] text-white' : 'bg-slate-50 text-slate-400 hover:text-[#00c996]'}`}>
                             {copiedId === s.id ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
                           </button>
                           <button onClick={() => handleOpenModal(s)} className="p-3 bg-slate-50 text-slate-300 hover:text-indigo-600 rounded-xl transition-all shadow-sm"><Edit2 className="w-4 h-4" /></button>
@@ -395,13 +523,20 @@ const Services: React.FC = () => {
         <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-10 animate-fadeIn text-left">
           <div className="bg-white w-full max-w-[1250px] h-full md:h-auto md:max-h-[92vh] rounded-none md:rounded-[3rem] shadow-2xl flex flex-col overflow-hidden">
             
-            <div className="flex border-b border-slate-100 overflow-x-auto no-scrollbar bg-white shrink-0">
-              {(['Geral', 'Anexos', 'Assinatura', 'Logística'] as ModalTab[]).map(tab => (
-                <button key={tab} onClick={() => setActiveTab(tab)} className={`px-10 py-6 text-[11px] font-black uppercase tracking-widest whitespace-nowrap transition-all relative ${activeTab === tab ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
-                  {tab}
-                  {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-indigo-600"></div>}
-                </button>
-              ))}
+            <div className="flex border-b border-slate-100 overflow-x-auto no-scrollbar bg-white shrink-0 items-center justify-between pr-8">
+              <div className="flex">
+                {(['Geral', 'Anexos', 'Assinatura', 'Logística'] as ModalTab[]).map(tab => (
+                  <button key={tab} onClick={() => setActiveTab(tab)} className={`px-10 py-6 text-[11px] font-black uppercase tracking-widest whitespace-nowrap transition-all relative ${activeTab === tab ? 'text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                    {tab}
+                    {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-indigo-600"></div>}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center space-x-2">
+                <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase ${formData.status === 'completed' ? 'bg-green-100 text-green-600' : formData.status === 'in_progress' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                  {formData.status === 'completed' ? 'Finalizada' : formData.status === 'in_progress' ? 'Em Andamento' : 'Pendente'}
+                </span>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-10 no-scrollbar bg-[#f8fafc]">
@@ -449,46 +584,101 @@ const Services: React.FC = () => {
                           <option value="alta">ALTA</option>
                         </select>
                       </div>
+
+                      {editingService && (
+                        <div className="pt-6 border-t border-slate-50 space-y-3">
+                          <div className="flex justify-between text-[9px] font-black uppercase text-slate-300 tracking-widest">
+                            <span>Criado em:</span>
+                            <span>{new Date(editingService.created_at || '').toLocaleString('pt-BR')}</span>
+                          </div>
+                          <div className="flex justify-between text-[9px] font-black uppercase text-slate-300 tracking-widest">
+                            <span>ID Interno:</span>
+                            <span className="text-slate-400">{editingService.id}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div className="lg:col-span-8 bg-white p-12 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-10">
-                    <div className="space-y-4">
-                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Relatório Técnico de Atividades</label>
-                       <textarea rows={10} className="w-full bg-slate-50 rounded-[2rem] p-8 text-sm font-medium text-slate-700 outline-none border-2 border-transparent focus:border-indigo-100 transition-all resize-none leading-relaxed placeholder:text-slate-300 shadow-inner" 
-                        placeholder="Descreva detalhadamente o serviço executado, peças trocadas e observações técnicas..." 
-                        value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-10">
-                      <div className="space-y-2">
-                         <div className="flex justify-between items-center mb-1">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Tarefa</label>
-                            <button type="button" onClick={() => setShowQuickTaskType(true)} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">Adicionar Novo</button>
-                         </div>
-                         {showQuickTaskType ? (
-                           <div className="flex items-center space-x-2 bg-slate-50 p-3 rounded-2xl border-2 border-indigo-100 animate-fadeIn">
-                             <input type="text" autoFocus className="flex-1 bg-transparent border-none outline-none text-xs font-bold" 
-                               placeholder="NOME" value={quickTaskName} onChange={e => setQuickTaskName(e.target.value.toUpperCase())} />
-                             <button type="button" onClick={saveQuickTaskType} className="text-green-500 hover:scale-110 transition-transform"><Check className="w-5 h-5"/></button>
-                             <button type="button" onClick={() => setShowQuickTaskType(false)} className="text-red-400 hover:scale-110 transition-transform"><X className="w-5 h-5"/></button>
-                           </div>
-                         ) : (
-                           <select className="w-full bg-slate-50 border-none rounded-2xl px-6 py-5 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-50" 
-                             value={formData.task_type} onChange={e => setFormData({...formData, task_type: e.target.value})}>
-                              <option value="">Selecione...</option>
-                              {taskTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                           </select>
-                         )}
+                  <div className="lg:col-span-8 space-y-10">
+                    <div className="bg-white p-12 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-10">
+                      <div className="space-y-4">
+                         <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Relatório Técnico de Atividades</label>
+                         <textarea rows={6} className="w-full bg-slate-50 rounded-[2rem] p-8 text-sm font-medium text-slate-700 outline-none border-2 border-transparent focus:border-indigo-100 transition-all resize-none leading-relaxed placeholder:text-slate-300 shadow-inner" 
+                          placeholder="Descreva detalhadamente o serviço executado, peças trocadas e observações técnicas..." 
+                          value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} />
                       </div>
-                      <div className="space-y-2">
-                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status da O.S.</label>
-                         <select className="w-full bg-slate-50 border-none rounded-2xl px-6 py-5 text-sm font-black text-green-600 outline-none uppercase" 
-                          value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}>
-                            <option value="pending">PENDENTE</option>
-                            <option value="in_progress">EM EXECUÇÃO</option>
-                            <option value="completed">FINALIZADA / ASSINADA</option>
-                         </select>
+
+                      <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Checklist de Verificação</label>
+                          <div className="flex space-x-2">
+                            <input 
+                              type="text" 
+                              className="bg-slate-50 border border-slate-100 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-300"
+                              placeholder="Nova tarefa..."
+                              value={checklistInput}
+                              onChange={e => setChecklistInput(e.target.value)}
+                              onKeyPress={e => e.key === 'Enter' && addChecklistItem()}
+                            />
+                            <button onClick={addChecklistItem} className="p-2 bg-indigo-600 text-white rounded-xl hover:scale-105 transition-all">
+                              <PlusCircle className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(formData.checklist || []).map((item, idx) => (
+                            <div key={idx} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${item.completed ? 'bg-green-50 border-green-100' : 'bg-slate-50 border-slate-100'}`}>
+                              <div className="flex items-center space-x-3">
+                                <button onClick={() => toggleChecklistItem(idx)} className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 text-white' : 'bg-white border-2 border-slate-200 text-transparent'}`}>
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <span className={`text-xs font-bold ${item.completed ? 'text-green-700 line-through' : 'text-slate-700'}`}>{item.task}</span>
+                              </div>
+                              <button onClick={() => removeChecklistItem(idx)} className="text-slate-300 hover:text-red-500 transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                          {(formData.checklist || []).length === 0 && (
+                            <div className="col-span-full py-8 text-center border-2 border-dashed border-slate-100 rounded-[2rem]">
+                              <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Nenhum item no checklist</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-10 pt-10 border-t border-slate-50">
+                        <div className="space-y-2">
+                           <div className="flex justify-between items-center mb-1">
+                              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tipo de Tarefa</label>
+                              <button type="button" onClick={() => setShowQuickTaskType(true)} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">Adicionar Novo</button>
+                           </div>
+                           {showQuickTaskType ? (
+                             <div className="flex items-center space-x-2 bg-slate-50 p-3 rounded-2xl border-2 border-indigo-100 animate-fadeIn">
+                               <input type="text" autoFocus className="flex-1 bg-transparent border-none outline-none text-xs font-bold" 
+                                 placeholder="NOME" value={quickTaskName} onChange={e => setQuickTaskName(e.target.value.toUpperCase())} />
+                               <button type="button" onClick={saveQuickTaskType} className="text-green-500 hover:scale-110 transition-transform"><Check className="w-5 h-5"/></button>
+                               <button type="button" onClick={() => setShowQuickTaskType(false)} className="text-red-400 hover:scale-110 transition-transform"><X className="w-5 h-5"/></button>
+                             </div>
+                           ) : (
+                             <select className="w-full bg-slate-50 border-none rounded-2xl px-6 py-5 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-50" 
+                               value={formData.task_type} onChange={e => setFormData({...formData, task_type: e.target.value})}>
+                                <option value="">Selecione...</option>
+                                {taskTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                             </select>
+                           )}
+                        </div>
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Status da O.S.</label>
+                           <select className="w-full bg-slate-50 border-none rounded-2xl px-6 py-5 text-sm font-black text-green-600 outline-none uppercase" 
+                            value={formData.status} onChange={e => setFormData({...formData, status: e.target.value as any})}>
+                              <option value="pending">PENDENTE</option>
+                              <option value="in_progress">EM EXECUÇÃO</option>
+                              <option value="completed">FINALIZADA / ASSINADA</option>
+                           </select>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -610,58 +800,94 @@ const Services: React.FC = () => {
         {services.map(s => {
           const clientData = getClientData(s.client_id);
           return (
-            <div key={`print-template-${s.id}`} id={`print-template-${s.id}`} className="bg-white text-black font-sans w-[210mm] min-h-[297mm] flex flex-col p-12">
-              {/* CABEÇALHO */}
-              <div className="flex justify-between items-start border-b-[6px] border-[#004282] pb-10 mb-10">
-                <Logo variant="dark" className="h-24" />
-                <div className="text-right">
-                  <h1 className="text-3xl font-black text-[#004282] uppercase tracking-tighter leading-none mb-4">Relatório de Atendimento Técnico</h1>
-                  <div className="inline-block bg-[#f8fafc] border border-slate-200 px-6 py-4 rounded-3xl">
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Identificação da O.S.</p>
-                     <p className="text-3xl font-black text-[#004282]">#{s.id.toString().slice(0,6).toUpperCase()}</p>
+            <div key={`print-template-${s.id}`} id={`print-template-${s.id}`} className={`bg-white text-black font-sans w-[210mm] min-h-[297mm] flex flex-col p-12 relative overflow-hidden ${isCertificateMode ? 'border-[1px] border-slate-200' : ''}`}>
+              {/* MARCA D'ÁGUA DE FUNDO */}
+              <div className="absolute inset-0 opacity-[0.01] pointer-events-none flex items-center justify-center rotate-[-35deg] scale-150 overflow-hidden">
+                <Logo variant="dark" width="800px" className="h-auto" />
+              </div>
+
+              {/* CABEÇALHO PROFISSIONAL */}
+              <div className="flex justify-between items-start mb-12 relative z-10 border-b-2 border-slate-100 pb-8">
+                <div className="flex flex-col space-y-4">
+                  <Logo variant="dark" width="280px" className="h-auto" />
+                  <div className="mt-2">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.3em]">Documento Oficial</p>
+                    <p className="text-[8px] text-slate-400 uppercase tracking-widest">Metrolab Management System v2.5</p>
                   </div>
-                  <div className="mt-6 flex flex-col space-y-1 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                     <p>Emissão: {new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR')} às {s.hour}</p>
-                     <p className={`${s.status === 'completed' ? 'text-[#00c996]' : 'text-orange-500'}`}>
-                       Status Operacional: {s.status === 'completed' ? 'CONCLUÍDA' : 'EM ANDAMENTO'}
-                     </p>
+                </div>
+
+                <div className="text-right flex flex-col items-end">
+                  <div className={`px-6 py-2 rounded-full mb-4 ${isCertificateMode ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-blue-600'} border border-current opacity-80`}>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">
+                      {isCertificateMode ? 'Certificado de Manutenção' : 'Relatório de Serviço'}
+                    </p>
+                  </div>
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-sm min-w-[180px]">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Identificação</p>
+                    <p className="text-xl font-black text-slate-900">O.S. #{s.id.toString().padStart(4, '0')}</p>
+                    <div className="mt-2 pt-2 border-t border-slate-200/50 flex justify-between items-center">
+                      <span className="text-[7px] font-bold text-slate-400 uppercase">Emissão</span>
+                      <span className="text-[8px] font-black text-slate-700">{new Date().toLocaleDateString('pt-BR')}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* DADOS DO CLIENTE E DO TÉCNICO */}
-              <div className="grid grid-cols-2 gap-8 mb-12">
-                <div className="bg-[#f8fafc] p-8 rounded-[3rem] border border-slate-100 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-4">
-                     <Users className="w-5 h-5 text-[#004282]" />
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Unidade Contratante</p>
+              {/* STATUS E DESTAQUE */}
+              <div className="flex justify-between items-center mb-10 relative z-10">
+                <div className="flex items-center space-x-4">
+                  <div className={`w-3 h-3 rounded-full ${s.status === 'completed' ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></div>
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                    Status Operacional: <span className={s.status === 'completed' ? 'text-emerald-600' : 'text-amber-600'}>{s.status === 'completed' ? 'CONCLUÍDA' : 'EM ANDAMENTO'}</span>
+                  </p>
+                </div>
+                {isCertificateMode && (
+                  <div className="flex items-center space-x-2 text-emerald-600">
+                    <ShieldCheck className="w-4 h-4" />
+                    <span className="text-[9px] font-black uppercase tracking-widest">Equipamento Certificado</span>
                   </div>
-                  <p className="font-black text-slate-900 uppercase text-lg leading-tight mb-2">{s.client_name || 'NÃO IDENTIFICADO'}</p>
-                  <p className="text-[11px] font-bold text-slate-500 mb-4">{clientData?.razao_social || 'Razão Social não informada'}</p>
+                )}
+              </div>
+
+              {/* DADOS DO CLIENTE E DO TÉCNICO */}
+              <div className="grid grid-cols-2 gap-6 mb-10 relative z-10">
+                <div className="bg-[#f8fafc] p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="flex items-center space-x-3 mb-4">
+                     <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                        <Users className="w-4 h-4 text-[#004282]" />
+                     </div>
+                     <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Unidade Contratante</p>
+                  </div>
+                  <p className="font-black text-slate-900 uppercase text-sm leading-tight mb-1">{s.client_name || 'NÃO IDENTIFICADO'}</p>
+                  <p className="text-[9px] font-bold text-slate-500 mb-2">{clientData?.razao_social || 'Razão Social não informada'}</p>
+                  <p className="text-[8px] font-black text-slate-400 mb-4 uppercase tracking-widest">CNPJ/CPF: {clientData?.document || 'NÃO INFORMADO'}</p>
                   <div className="h-1 w-12 bg-[#74C044] rounded-full mb-4"></div>
-                  <div className="flex items-center space-x-2 text-[10px] font-bold text-slate-400 italic">
-                     <MapPin className="w-3.5 h-3.5" />
-                     <p className="line-clamp-2">{clientData?.endereco || 'Endereço não cadastrado'}</p>
+                  <div className="flex items-center space-x-2 text-[8px] font-bold text-slate-400 italic">
+                     <MapPin className="w-3 h-3" />
+                     <p className="line-clamp-1">{clientData?.endereco || 'Endereço não cadastrado'}</p>
                   </div>
                 </div>
-                <div className="bg-[#f8fafc] p-8 rounded-[3rem] border border-slate-100 shadow-sm flex flex-col justify-between">
+
+                <div className="bg-[#f8fafc] p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between">
                   <div>
                     <div className="flex items-center space-x-3 mb-4">
-                       <UserCheck className="w-5 h-5 text-[#004282]" />
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Responsável Técnico</p>
+                       <div className="w-8 h-8 bg-white rounded-xl flex items-center justify-center shadow-sm border border-slate-100">
+                          <UserCheck className="w-4 h-4 text-[#004282]" />
+                       </div>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Responsável Técnico</p>
                     </div>
-                    <p className="font-black text-slate-900 uppercase text-lg leading-tight">{s.responsible || 'NÃO ATRIBUÍDO'}</p>
-                    <div className="inline-block mt-4 px-4 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-widest">
+                    <p className="font-black text-slate-900 uppercase text-sm leading-tight">{s.responsible || 'NÃO ATRIBUÍDO'}</p>
+                    <div className="inline-block mt-3 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[8px] font-black uppercase tracking-widest">
                       {s.task_type || 'SERVIÇO GERAL'}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-[10px] font-black text-slate-400 uppercase border-t border-slate-200/50 pt-4">
+                  <div className="flex items-center justify-between text-[8px] font-black text-slate-400 uppercase border-t border-slate-200/50 pt-4">
                      <div className="flex items-center space-x-2">
-                        <Calendar className="w-3.5 h-3.5" />
+                        <Calendar className="w-3 h-3" />
                         <span>{new Date(s.date + 'T00:00:00').toLocaleDateString('pt-BR')}</span>
                      </div>
                      <div className="flex items-center space-x-2">
-                        <Clock className="w-3.5 h-3.5" />
+                        <Clock className="w-3 h-3" />
                         <span>{s.hour}</span>
                      </div>
                   </div>
@@ -669,68 +895,70 @@ const Services: React.FC = () => {
               </div>
 
               {/* RELATÓRIO TÉCNICO */}
-              <div className="space-y-6 mb-12 flex-1">
-                <div className="flex items-center space-x-4 border-b-2 border-slate-100 pb-3">
-                   <FileText className="w-5 h-5 text-[#004282]" />
-                   <h3 className="text-xs font-black uppercase tracking-widest text-[#004282]">Relatório Detalhado das Atividades</h3>
+              <div className="space-y-4 mb-10 flex-1 relative z-10 page-break-inside-avoid">
+                <div className="flex items-center space-x-4 border-b-2 border-slate-100 pb-2">
+                   <FileText className="w-4 h-4 text-[#004282]" />
+                   <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-[#004282]">Relatório Detalhado das Atividades</h3>
                 </div>
-                <div className="p-10 bg-[#f8fafc]/50 border border-slate-100 rounded-[3rem] text-slate-800 leading-relaxed text-sm whitespace-pre-wrap min-h-[350px] shadow-inner font-medium">
+                <div className="p-8 bg-[#f8fafc]/30 border border-slate-100 rounded-3xl text-slate-800 leading-relaxed text-xs whitespace-pre-wrap min-h-[250px] shadow-inner font-medium">
                   {s.description || 'Nenhum detalhe técnico registrado neste atendimento.'}
                 </div>
               </div>
 
-              {/* ANEXOS / EVIDÊNCIAS FOTOGRÁFICAS */}
+              {/* EVIDÊNCIAS FOTOGRÁFICAS */}
               {s.attachments && s.attachments.length > 0 && (
-                <div className="space-y-6 mb-12 page-break-before">
-                  <div className="flex items-center space-x-4 border-b-2 border-slate-100 pb-3">
-                     <ImageIconLucide className="w-5 h-5 text-[#004282]" />
-                     <h3 className="text-xs font-black uppercase tracking-widest text-[#004282]">Evidências Fotográficas (Check-out)</h3>
+                <div className="space-y-4 mb-10 relative z-10 page-break-inside-avoid">
+                  <div className="flex items-center space-x-4 border-b-2 border-slate-100 pb-2">
+                     <Camera className="w-4 h-4 text-[#004282]" />
+                     <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-[#004282]">Evidências Fotográficas (Check-out)</h3>
                   </div>
-                  <div className="grid grid-cols-2 gap-6">
-                    {s.attachments.map((att, idx) => (
-                      <div key={att.id} className="bg-white border-2 border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm aspect-video relative">
-                         <img src={att.url} className="w-full h-full object-cover" alt={`Anexo ${idx + 1}`} />
-                         <div className="absolute bottom-4 left-4 bg-black/40 backdrop-blur-sm text-white px-4 py-1 rounded-full text-[9px] font-black uppercase">FOTO {idx + 1}</div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {s.attachments.map((att: any, idx: number) => (
+                      <div key={att.id} className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-sm aspect-video bg-slate-50">
+                        <img src={att.url} alt={`Evidência ${idx + 1}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-md text-white text-[7px] font-black px-2 py-1 rounded-full uppercase tracking-widest">
+                          Foto {idx + 1} • {new Date(att.created_at).toLocaleDateString('pt-BR')}
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* ÁREA DE ASSINATURA */}
-              <div className="mt-auto pt-12 border-t-2 border-slate-100 flex flex-col items-center">
-                {s.signature ? (
-                  <div className="flex flex-col items-center animate-fadeIn text-center">
-                     <div className="relative mb-6">
-                        <img src={s.signature} className="h-32 object-contain relative z-10" alt="Assinatura" />
-                        <div className="absolute inset-x-0 bottom-6 h-0.5 bg-black/20"></div>
-                     </div>
-                     <p className="text-[10px] font-black uppercase tracking-[0.4em] text-[#00c996] mb-2 flex items-center justify-center">
-                       <ShieldCheck className="w-4 h-4 mr-2" /> Documento Autenticado Digitalmente
-                     </p>
-                     <p className="font-black text-slate-900 uppercase text-xl leading-none">{s.signature_name || 'RECEBEDOR NÃO IDENTIFICADO'}</p>
-                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">CPF: {s.signature_cpf || 'Não Informado'}</p>
-                     <p className="text-[8px] text-slate-300 mt-2 uppercase font-bold tracking-tighter italic">ID Único: {Math.random().toString(36).substr(2, 12).toUpperCase()}</p>
+              {/* ASSINATURAS E VALIDAÇÃO */}
+              <div className="mt-auto pt-10 border-t-2 border-slate-100 relative z-10 page-break-inside-avoid">
+                <div className="flex justify-between items-end">
+                  <div className="flex flex-col items-center space-y-4 w-[250px]">
+                    {s.signature ? (
+                      <div className="flex flex-col items-center">
+                        <img src={s.signature} alt="Assinatura" className="h-16 object-contain mb-2" referrerPolicy="no-referrer" />
+                        <div className="w-full h-px bg-slate-300 mb-2"></div>
+                        <div className="flex items-center space-x-2 text-emerald-600 mb-1">
+                          <ShieldCheck className="w-3 h-3" />
+                          <span className="text-[7px] font-black uppercase tracking-widest">Documento Autenticado Digitalmente</span>
+                        </div>
+                        <p className="text-[10px] font-black text-slate-900 uppercase">{s.signature_name || 'Recebedor'}</p>
+                        <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest">CPF: {s.signature_cpf || 'NÃO INFORMADO'}</p>
+                        <p className="text-[6px] text-slate-300 mt-1 font-mono">ID ÚNICO: {s.id.toString().toUpperCase()}{new Date(s.date).getTime().toString(36).toUpperCase()}</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center w-full">
+                        <div className="h-16 flex items-center justify-center text-slate-300 italic text-[10px]">Aguardando Assinatura</div>
+                        <div className="w-full h-px bg-slate-200"></div>
+                        <p className="text-[10px] font-black text-slate-400 uppercase mt-2">Assinatura do Cliente</p>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="w-full max-w-sm text-center">
-                     <div className="border-b-4 border-dashed border-slate-200 h-24 mb-6"></div>
-                     <p className="text-[11px] font-black uppercase tracking-widest text-slate-300 italic">Aguardando Validação Digital do Cliente</p>
-                  </div>
-                )}
-              </div>
 
-              {/* RODAPÉ INSTITUCIONAL */}
-              <div className="pt-12 border-t border-slate-100 flex justify-between items-end opacity-40">
-                <div className="text-[8px] font-black uppercase text-slate-400 space-y-1 text-left">
-                   <p className="text-slate-900">Metrolab's Engenharia Clínica & Hospitalar</p>
-                   <p>CNPJ: 46.809.235/0001-XX | CREA-SP Ativo</p>
-                   <p>www.metrolabs.com.br | contato@metrolabs.com.br</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[8px] font-black uppercase text-slate-400 tracking-widest">
-                    Gerado via Metrolab Management System &copy; {new Date().getFullYear()}
-                  </p>
+                  <div className="text-right flex flex-col items-end max-w-[350px]">
+                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Informações Institucionais</p>
+                    <div className="space-y-1">
+                      <p className="text-[8px] font-black text-slate-800 uppercase">Metrolab Engenharia Clínica & Hospitalar</p>
+                      <p className="text-[7px] font-bold text-slate-500">CNPJ: 46.809.235/0001-XX | CREA-SP ATIVO</p>
+                      <p className="text-[7px] font-bold text-slate-500">www.metrolabs.com.br | contato@metrolabs.com.br</p>
+                    </div>
+                    <p className="text-[6px] text-slate-300 mt-6 uppercase tracking-widest">Gerado via Metrolab Management System © 2026</p>
+                  </div>
                 </div>
               </div>
             </div>

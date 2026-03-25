@@ -56,35 +56,107 @@ const prepareData = (item: any) => {
 };
 
 // Helper para timeout em operações do Supabase
-const withTimeout = async (promise: any, timeoutMs: number = 10000) => {
+const withTimeout = async (promise: any, timeoutMs: number = 90000) => {
+  let timeoutId: any;
   const timeoutPromise = new Promise((_, reject) => 
-    setTimeout(() => reject(new Error('Tempo limite de conexão com o banco de dados excedido.')), timeoutMs)
+    timeoutId = setTimeout(() => {
+      reject(new Error('Tempo limite de conexão com o banco de dados excedido.'));
+    }, timeoutMs)
   );
-  return Promise.race([promise, timeoutPromise]);
+  
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    return result;
+  } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    throw error;
+  }
+};
+
+// Helper para retentativa em operações críticas
+const withRetry = async (fn: () => any, retries: number = 10, timeoutMs: number = 60000, retryOnSupabaseError: boolean = false) => {
+  let lastError: any;
+  console.log(`[DB] Iniciando operação com ${retries} retentativas e timeout de ${timeoutMs}ms`);
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await withTimeout(fn(), timeoutMs);
+      
+      // Se a função retorna o padrão do Supabase { data, error }
+      if (retryOnSupabaseError && result && result.error) {
+        // Só retentamos se for erro de conexão/timeout do Supabase (status 0 ou 5xx)
+        const status = result.error.status;
+        const message = result.error.message?.toLowerCase() || '';
+        if (!status || status === 0 || status >= 500 || message.includes('fetch') || message.includes('network')) {
+          throw result.error;
+        }
+        // Erros 4xx (como credenciais inválidas) não devem ser retentados
+        return result;
+      }
+      
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = err.message?.toLowerCase() || '';
+      console.warn(`[DB] Tentativa ${i + 1} falhou: ${err.message}`);
+      
+      // Se for erro de rede ou timeout, retentamos com delay exponencial
+      if (i < retries - 1) {
+        // Delay exponencial: ~1s, ~2.5s, ~6s, ~15s...
+        const delay = Math.pow(2.2, i) * 1000 + (Math.random() * 500);
+        console.log(`[DB] Retentando em ${Math.round(delay)}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  
+  // Se chegamos aqui, todas as tentativas falharam
+  const finalError = new Error(`Falha após ${retries} tentativas. Último erro: ${lastError.message}`);
+  (finalError as any).originalError = lastError;
+  throw finalError;
 };
 
 export const db = {
   auth: {
     signIn: async (email: string, pass: string) => {
-      return await supabase.auth.signInWithPassword({ email, password: pass });
+      try {
+        console.log(`[DB] Tentando login para ${email}...`);
+        // Login interativo: 5 retentativas de 60s
+        return await withRetry(() => supabase.auth.signInWithPassword({ email, password: pass }), 5, 60000, true);
+      } catch (error: any) {
+        console.error("[DB] Erro no signIn:", error.message || error);
+        throw error;
+      }
     },
     signOut: async () => {
-      return await supabase.auth.signOut();
+      return await withTimeout(supabase.auth.signOut(), 15000);
     },
     getSession: async () => {
-      const { data } = await supabase.auth.getSession();
-      return data?.session;
+      try {
+        // Sessão inicial: 10 retentativas de 60s.
+        const { data, error } = await withRetry(() => supabase.auth.getSession(), 10, 60000, true);
+        if (error) throw error;
+        return data?.session;
+      } catch (error) {
+        console.error("[DB] Erro ao buscar sessão:", error);
+        return null;
+      }
     }
   },
 
   testConnection: async () => {
     try {
-      const { data, error } = await withTimeout(supabase.from('products').select('id').limit(1), 5000);
-      if (error) throw error;
+      console.log("[DB] Testando conexão com Supabase...");
+      // Teste de conexão: 10 retentativas de 60s.
+      const result = await withRetry(() => supabase.from('products').select('id').limit(1), 10, 60000, true);
+      if (result.error) {
+        console.error("[DB] Erro retornado pelo Supabase no teste:", result.error);
+        throw result.error;
+      }
       console.log("[DB] Conexão com Supabase OK");
       return true;
-    } catch (err) {
-      console.error("[DB] Falha na conexão com Supabase:", err);
+    } catch (err: any) {
+      console.error("[DB] Falha na conexão com Supabase após várias tentativas:", err.message || err);
       return false;
     }
   },
@@ -100,9 +172,14 @@ export const db = {
 
   products: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('products').select('*').order('name'), 8000);
-      if (error) console.error("[DB] Erro ao buscar produtos:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 5, 45000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar produtos:", error);
+        return [];
+      }
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
@@ -116,9 +193,14 @@ export const db = {
   },
   clients: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('clients').select('*').order('name'), 8000);
-      if (error) console.error("[DB] Erro ao buscar clientes:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 3, 20000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar clientes:", error);
+        return [];
+      }
     },
     save: async (item: any) => { 
       const { isUpdate, id, data } = prepareData(item);
@@ -132,14 +214,24 @@ export const db = {
   },
   services: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('services').select('*').order('date', { ascending: false }), 8000);
-      if (error) console.error("[DB] Erro ao buscar serviços:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 3, 20000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar serviços:", error);
+        return [];
+      }
     },
     getById: async (id: string | number) => {
-      const { data, error } = await withTimeout(supabase.from('services').select('*').eq('id', id).single(), 5000);
-      if (error) console.error("[DB] Erro ao buscar serviço por ID:", error);
-      return data;
+      try {
+        const { data, error } = await withRetry(() => supabase.from('services').select('*').eq('id', id).single(), 2, 15000);
+        if (error) throw error;
+        return data;
+      } catch (error) {
+        console.error("[DB] Erro ao buscar serviço por ID:", error);
+        return null;
+      }
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
@@ -152,9 +244,14 @@ export const db = {
     delete: async (id: string | number) => await withTimeout(supabase.from('services').delete().eq('id', id)),
     
     getTaskTypes: async () => {
-      const { data, error } = await withTimeout(supabase.from('service_task_types').select('*').order('name'), 5000);
-      if (error) console.error("[DB] Erro ao buscar tipos de tarefa:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('service_task_types').select('*').order('name'), 3, 10000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar tipos de tarefa:", error);
+        return [];
+      }
     },
     saveTaskType: async (name: string) => {
       return await withTimeout(supabase.from('service_task_types').insert({ name }).select());
@@ -162,14 +259,25 @@ export const db = {
   },
   users: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('users').select('*').order('full_name'), 8000);
-      if (error) console.error("[DB] Erro ao buscar usuários:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').order('full_name'), 5, 45000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar usuários:", error);
+        return [];
+      }
     },
     getByEmail: async (email: string) => {
-      const { data, error } = await withTimeout(supabase.from('users').select('*').eq('email', email).maybeSingle(), 5000);
-      if (error) console.error("[DB] Erro ao buscar metadados do usuário:", error);
-      return data;
+      try {
+        // Metadados do usuário: 10 retentativas de 60s.
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 10, 60000, true);
+        if (error) throw error;
+        return data;
+      } catch (error) {
+        console.error("[DB] Erro ao buscar metadados do usuário:", error);
+        return null;
+      }
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
@@ -183,9 +291,14 @@ export const db = {
   },
   activities: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('activities').select('*').order('date', { ascending: false }), 8000);
-      if (error) console.error("[DB] Erro ao buscar atividades:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 3, 20000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar atividades:", error);
+        return [];
+      }
     },
     log: async (description: string, type: string) => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -197,9 +310,14 @@ export const db = {
   },
   sales: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('sales').select('*').order('date', { ascending: false }), 8000);
-      if (error) console.error("[DB] Erro ao buscar vendas:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 3, 20000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar vendas:", error);
+        return [];
+      }
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
@@ -213,9 +331,14 @@ export const db = {
   },
   tracking: {
     getAll: async () => {
-      const { data, error } = await withTimeout(supabase.from('tracking').select('*').order('created_at', { ascending: false }), 8000);
-      if (error) console.error("[DB] Erro ao buscar rastreios:", error);
-      return data || [];
+      try {
+        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 3, 20000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar rastreios:", error);
+        return [];
+      }
     },
     save: async (item: any) => {
       const { isUpdate, id, data } = prepareData(item);
@@ -226,5 +349,46 @@ export const db = {
       return await withTimeout(op);
     },
     delete: async (id: string | number) => await withTimeout(supabase.from('tracking').delete().eq('id', id))
+  },
+  stock_movements: {
+    getAll: async () => {
+      try {
+        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 5, 45000);
+        if (error) throw error;
+        return data || [];
+      } catch (error) {
+        console.error("[DB] Erro ao buscar movimentações de estoque:", error);
+        return [];
+      }
+    },
+    save: async (item: any) => {
+      const { isUpdate, id, data } = prepareData(item);
+      console.log(`[DB] Saving stock movement (update: ${isUpdate}):`, data);
+      
+      // Se for uma nova movimentação, precisamos atualizar o estoque do produto
+      if (!isUpdate) {
+        try {
+          const { data: product, error: fetchError } = await withRetry(() => supabase.from('products').select('stock').eq('id', data.product_id).single(), 2, 10000);
+          if (fetchError) throw fetchError;
+          
+          if (product) {
+            const newStock = data.type === 'in' 
+              ? (product.stock || 0) + data.quantity 
+              : (product.stock || 0) - data.quantity;
+            
+            await withTimeout(supabase.from('products').update({ stock: newStock }).eq('id', data.product_id), 10000);
+          }
+        } catch (err) {
+          console.error("[DB] Erro ao atualizar estoque na movimentação:", err);
+          // Continuamos para salvar a movimentação mesmo se a atualização do estoque falhar (embora não seja o ideal, evita travar o salvamento)
+        }
+      }
+
+      const op = isUpdate
+        ? supabase.from('stock_movements').update(data).eq('id', id).select()
+        : supabase.from('stock_movements').insert(data).select();
+      return await withTimeout(op);
+    },
+    delete: async (id: string | number) => await withTimeout(supabase.from('stock_movements').delete().eq('id', id))
   }
 };
