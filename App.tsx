@@ -117,11 +117,8 @@ const App: React.FC = () => {
 
   const fetchUserData = async (email: string) => {
     try {
-      // Timeout de 15s para buscar metadados para não travar o login
-      const userMetadata = await Promise.race([
-        db.users.getByEmail(email),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000))
-      ]) as any;
+      // Deixamos o db.users.getByEmail gerenciar suas próprias retentativas e timeouts
+      const userMetadata = await db.users.getByEmail(email);
 
       if (userMetadata) {
         const fullUser: User = {
@@ -136,12 +133,13 @@ const App: React.FC = () => {
         localStorage.setItem('metrolab_user', JSON.stringify(fullUser));
       } else {
         // Fallback para quando o usuário existe no Auth mas não no banco metadata 'users'
+        // ou quando a busca falha (db.users.getByEmail retorna null em caso de erro)
         const fallbackUser: User = {
-          id: email, // Usamos o e-mail como ID temporário
+          id: email, 
           username: email.split('@')[0],
           full_name: email.split('@')[0],
           email: email,
-          role: 'user' // Por padrão entra como usuário comum até ser promovido no SQL
+          role: 'user'
         };
         setCurrentUser(fallbackUser);
         setIsAuthenticated(true);
@@ -149,7 +147,18 @@ const App: React.FC = () => {
       }
     } catch (e) {
       console.error("Erro crítico ao buscar metadados:", e);
-      setIsAuthenticated(true); // Mantém logado pelo Auth pelo menos
+      
+      // Garantia absoluta de que o usuário não ficará travado
+      const emergencyUser: User = {
+        id: email,
+        username: email.split('@')[0],
+        full_name: email.split('@')[0],
+        email: email,
+        role: 'user'
+      };
+      setCurrentUser(emergencyUser);
+      setIsAuthenticated(true);
+      localStorage.setItem('metrolab_user', JSON.stringify(emergencyUser));
     }
   };
 

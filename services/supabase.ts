@@ -75,7 +75,7 @@ const withTimeout = async (promise: any, timeoutMs: number = 90000) => {
 };
 
 // Helper para retentativa em operações críticas
-const withRetry = async (fn: () => any, retries: number = 5, timeoutMs: number = 45000, retryOnSupabaseError: boolean = false) => {
+const withRetry = async (fn: () => any, retries: number = 5, timeoutMs: number = 60000, retryOnSupabaseError: boolean = false) => {
   let lastError: any;
   console.log(`[DB] Iniciando operação com ${retries} retentativas e timeout de ${timeoutMs}ms`);
   for (let i = 0; i < retries; i++) {
@@ -172,7 +172,7 @@ export const db = {
   products: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('products').select('*').order('name'), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -193,7 +193,7 @@ export const db = {
   clients: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('clients').select('*').order('name'), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -214,7 +214,7 @@ export const db = {
   services: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('services').select('*').order('date', { ascending: false }), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -269,8 +269,9 @@ export const db = {
     },
     getByEmail: async (email: string) => {
       try {
-        // Metadados do usuário: 5 retentativas de 45s.
-        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 5, 45000, true);
+        // Metadados do usuário: 3 retentativas de 45s.
+        // Reduzimos para 3 para falhar mais rápido e acionar o fallback do App.tsx
+        const { data, error } = await withRetry(() => supabase.from('users').select('*').eq('email', email).maybeSingle(), 3, 45000, true);
         if (error) throw error;
         return data;
       } catch (error) {
@@ -291,7 +292,7 @@ export const db = {
   activities: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('activities').select('*').order('date', { ascending: false }), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -310,7 +311,7 @@ export const db = {
   sales: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('sales').select('*').order('date', { ascending: false }), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -331,7 +332,7 @@ export const db = {
   tracking: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('tracking').select('*').order('created_at', { ascending: false }), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {
@@ -352,7 +353,7 @@ export const db = {
   stock_movements: {
     getAll: async () => {
       try {
-        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 2, 30000);
+        const { data, error } = await withRetry(() => supabase.from('stock_movements').select('*').order('date', { ascending: false }), 5, 60000);
         if (error) throw error;
         return data || [];
       } catch (error) {

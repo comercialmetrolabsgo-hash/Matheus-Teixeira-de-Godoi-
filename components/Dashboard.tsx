@@ -44,51 +44,58 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
     if (isInitial) setIsLoading(true);
     setIsSyncing(true);
     
-    // Timeout de segurança para não travar a tela de sincronização
+    // Timeout de segurança para não travar a tela de sincronização (20s)
     const dashboardTimeout = setTimeout(() => {
       setIsLoading(false);
       console.warn("[Dashboard] Sincronização demorando muito, liberando interface.");
-    }, 15000);
+    }, 20000);
 
     try {
       setHasError(false);
       
       // Carregar dados em paralelo para maior velocidade
+      // Cada busca tem seu próprio catch para não derrubar as outras
       const [products, clients, services, activities] = await Promise.all([
-        db.products.getAll().catch(() => []),
-        db.clients.getAll().catch(() => []),
-        db.services.getAll().catch(() => []),
-        db.activities.getAll().catch(() => [])
+        db.products.getAll().catch(err => { console.error("Erro produtos:", err); return []; }),
+        db.clients.getAll().catch(err => { console.error("Erro clientes:", err); return []; }),
+        db.services.getAll().catch(err => { console.error("Erro serviços:", err); return []; }),
+        db.activities.getAll().catch(err => { console.error("Erro atividades:", err); return []; })
       ]);
       
       const userStr = localStorage.getItem('metrolab_user');
       const user: UserType = userStr ? JSON.parse(userStr) : null;
       setCurrentUser(user);
 
-      const myServices = (services || []).filter((s: Service) => {
+      // Garantimos que os dados sejam arrays antes de processar
+      const safeProducts = Array.isArray(products) ? products : [];
+      const safeClients = Array.isArray(clients) ? clients : [];
+      const safeServices = Array.isArray(services) ? services : [];
+      const safeActivities = Array.isArray(activities) ? activities : [];
+
+      const myServices = safeServices.filter((s: Service) => {
         const respName = String(s.responsible || '').trim().toLowerCase();
         const currentName = String(user?.full_name || '').trim().toLowerCase();
         return respName === currentName && s.status !== 'completed';
       });
 
-      const totalStockValue = (products || []).reduce((acc, p) => {
+      const totalStockValue = safeProducts.reduce((acc, p) => {
         return acc + ((p.costPrice || 0) * (p.stock || 0));
       }, 0);
 
       // Lógica de Alertas
-      const criticalStock = (products || []).filter(p => (p.stock || 0) <= (p.minStock || 0));
+      const criticalStock = safeProducts.filter(p => (p.stock || 0) <= (p.minStock || 0));
       
       const today = new Date();
       const nextMonth = new Date();
       nextMonth.setDate(today.getDate() + 30);
       
-      const expiringSoon = (products || []).filter(p => {
+      const expiringSoon = safeProducts.filter(p => {
         if (!p.expiry_date) return false;
         const expiry = new Date(p.expiry_date + 'T23:59:59');
         return expiry > today && expiry <= nextMonth;
       });
 
-      const stalledServices = (services || []).filter(s => {
+      const stalledServices = safeServices.filter(s => {
         if (s.status !== 'in_progress') return false;
         const created = new Date(s.created_at || s.date);
         const diffHours = (today.getTime() - created.getTime()) / (1000 * 60 * 60);
@@ -96,11 +103,11 @@ const Dashboard: React.FC<DashboardProps> = ({ setSection }) => {
       });
       
       setData({
-        products: products.length,
-        clients: (clients || []).filter((c: any) => c.status === 'active').length,
-        services: (services || []).filter((s: any) => s.status !== 'completed').length,
+        products: safeProducts.length,
+        clients: safeClients.filter((c: any) => c.status === 'active').length,
+        services: safeServices.filter((s: any) => s.status !== 'completed').length,
         totalStockValue: totalStockValue,
-        activities: (activities || []).slice(0, 5),
+        activities: safeActivities.slice(0, 5),
         myServices: myServices,
         alerts: {
           criticalStock,
